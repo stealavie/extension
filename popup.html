@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Tạo Phụ Đề</title>
+    <style>
+        :root {
+            --bg-color: #282828;
+            --text-color: #f1f1f1;
+            --border-color: #4d4d4d;
+            --primary-color: #3ea6ff;
+            --progress-bg: #444;
+            --disabled-color: #5f5f5f;
+        }
+        body {
+            width: 320px;
+            font-family: Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 15px;
+            box-sizing: border-box;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        h3 {
+            margin: 0;
+            text-align: center;
+            font-size: 16px;
+        }
+        .video-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background-color: #333;
+            padding: 10px;
+            border-radius: 8px;
+        }
+        #video-thumbnail {
+            width: 80px;
+            height: 45px;
+            border-radius: 4px;
+            object-fit: cover;
+            border: 1px solid var(--border-color);
+        }
+        #video-title {
+            font-size: 13px;
+            font-weight: bold;
+            flex-grow: 1;
+            margin: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .language-selection label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+        #language-select {
+            width: 100%;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background-color: var(--progress-bg);
+            color: var(--text-color);
+            font-size: 14px;
+        }
+        #startButton {
+            padding: 12px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            transition: background-color 0.2s;
+        }
+        #startButton:hover {
+            background-color: #68bfff;
+        }
+        #startButton:disabled {
+            background-color: var(--disabled-color);
+            cursor: not-allowed;
+        }
+        .status-area {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        #status-text {
+            margin: 0;
+            font-size: 13px;
+            text-align: center;
+            min-height: 18px;
+        }
+        .progress-bar-container {
+            width: 100%;
+            height: 8px;
+            background-color: var(--progress-bg);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        #progress-bar-fill {
+            width: 0%;
+            height: 100%;
+            background-color: var(--primary-color);
+            border-radius: 4px;
+            transition: width 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h3>Tạo Phụ Đề Tự Động</h3>
+        <div class="video-info">
+            <img id="video-thumbnail" src="placeholder.png" alt="Video Thumbnail">
+            <h4 id="video-title">Đang tải thông tin video...</h4>
+        </div>
+        <div class="language-selection">
+            <label for="language-select">Ngôn ngữ gốc của video:</label>
+            <select id="language-select">
+                <option value="vi-VN">Tiếng Việt</option>
+                <option value="en-US">Tiếng Anh (Mỹ)</option>
+                <option value="en-GB">Tiếng Anh (Anh)</option>
+                <option value="ja-JP">Tiếng Nhật</option>
+                <option value="ko-KR">Tiếng Hàn</option>
+                <option value="cmn-CN">Tiếng Trung (Quan thoại)</option>
+            </select>
+        </div>
+        <div class="status-area">
+            <p id="status-text"></p>
+            <div class="progress-bar-container">
+                <div id="progress-bar-fill"></div>
+            </div>
+        </div>
+        <button id="startButton">Tạo Phụ Đề</button>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>
