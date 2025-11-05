@@ -1,8 +1,9 @@
 console.log('Content script đang chạy...');
 
 (async () => {
-    const { selectedLanguage } = await chrome.storage.local.get('selectedLanguage');
-    const languageCode = selectedLanguage || 'vi-VN';
+    const storage = await chrome.storage.local.get(['selectedLanguage', 'serverUrl']);
+    const languageCode = storage.selectedLanguage || 'vi-VN';
+    const serverUrl = storage.serverUrl || 'http://127.0.0.1:5000';
 
     const oldStatusDisplay = document.getElementById('audio-fetcher-status');
     if (oldStatusDisplay) oldStatusDisplay.remove();
@@ -10,28 +11,86 @@ console.log('Content script đang chạy...');
     const statusDisplay = document.createElement('div');
     statusDisplay.id = 'audio-fetcher-status';
     statusDisplay.innerHTML = `
-        <p id="status-text-on-page" style="margin: 0 0 8px 0;"></p>
-        <div style="width: 100%; background-color: #555; border-radius: 4px; overflow: hidden;">
-            <div id="progress-bar-on-page" style="width: 0%; height: 5px; background-color: #3ea6ff; transition: width 0.5s ease;"></div>
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+            <div id="status-icon" style="font-size: 20px;">⏳</div>
+            <p id="status-text-on-page" style="margin: 0; flex: 1; font-size: 14px;"></p>
         </div>
+        <div style="width: 100%; background-color: #444; border-radius: 8px; overflow: hidden; height: 6px;">
+            <div id="progress-bar-on-page" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3ea6ff, #68bfff); transition: width 0.5s ease; position: relative;">
+                <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent); animation: shimmer 2s infinite;"></div>
+            </div>
+        </div>
+        <style>
+            @keyframes shimmer {
+                0% { transform: translateX(-100%); }
+                100% { transform: translateX(100%); }
+            }
+        </style>
     `;
     Object.assign(statusDisplay.style, {
-        position: 'fixed', top: '80px', right: '20px', backgroundColor: '#282828',
-        color: 'white', padding: '15px', borderRadius: '8px', zIndex: '9999',
-        fontFamily: 'Arial, sans-serif', fontSize: '14px', border: '1px solid #333',
-        boxShadow: '0 4px 8px rgba(0,0,0,0.3)', width: '250px'
+        position: 'fixed', 
+        top: '80px', 
+        right: '20px', 
+        backgroundColor: '#282828',
+        color: 'white', 
+        padding: '18px', 
+        borderRadius: '12px', 
+        zIndex: '9999',
+        fontFamily: '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif', 
+        fontSize: '14px', 
+        border: '1px solid #4d4d4d',
+        boxShadow: '0 6px 20px rgba(0,0,0,0.5)', 
+        width: '320px',
+        backdropFilter: 'blur(10px)',
+        animation: 'slideIn 0.3s ease'
     });
+    
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(50px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+    `;
+    document.head.appendChild(style);
     document.body.appendChild(statusDisplay);
 
     const statusTextElement = document.getElementById('status-text-on-page');
+    const statusIconElement = document.getElementById('status-icon');
     const progressBarElement = document.getElementById('progress-bar-on-page');
 
-    function updateStatus(message, progress, isError = false) {
+    function updateStatus(message, progress, type = 'loading') {
         if (message) statusTextElement.textContent = message;
         if (progress !== null && progress !== undefined) {
             progressBarElement.style.width = `${progress}%`;
         }
-        statusDisplay.style.borderColor = isError ? '#e74c3c' : '#333';
+        
+        const icons = {
+            loading: '⏳',
+            success: '✅',
+            error: '❌',
+            processing: '⚙️',
+            download: '📥',
+            transcribe: '📝'
+        };
+        
+        const colors = {
+            loading: '#3ea6ff',
+            success: '#4caf50',
+            error: '#e74c3c',
+            processing: '#ff9800',
+            download: '#9c27b0',
+            transcribe: '#00bcd4'
+        };
+        
+        if (icons[type]) statusIconElement.textContent = icons[type];
+        if (colors[type]) statusDisplay.style.borderColor = colors[type];
     }
 
     function setupSubtitleDisplay(subtitleData) {
@@ -44,11 +103,24 @@ console.log('Content script đang chạy...');
             subtitleContainer = document.createElement('div');
             subtitleContainer.id = 'custom-subtitle-container';
             Object.assign(subtitleContainer.style, {
-                position: 'absolute', bottom: '10%', left: '50%', transform: 'translateX(-50%)',
-                color: 'white', backgroundColor: 'rgba(0, 0, 0, 0.7)', padding: '10px 20px',
-                borderRadius: '8px', fontSize: '24px', fontFamily: 'Arial, sans-serif',
-                textAlign: 'center', zIndex: '9998', pointerEvents: 'none', maxWidth: '80%',
-                textShadow: '2px 2px 4px black'
+                position: 'absolute', 
+                bottom: '12%', 
+                left: '50%', 
+                transform: 'translateX(-50%)',
+                color: 'white', 
+                backgroundColor: 'rgba(0, 0, 0, 0.85)', 
+                padding: '12px 24px',
+                borderRadius: '8px', 
+                fontSize: '28px', 
+                fontFamily: '"Segoe UI", Arial, sans-serif',
+                textAlign: 'center', 
+                zIndex: '9998', 
+                pointerEvents: 'none', 
+                maxWidth: '85%',
+                textShadow: '2px 2px 6px rgba(0,0,0,0.9)',
+                fontWeight: '600',
+                lineHeight: '1.4',
+                letterSpacing: '0.5px'
             });
             videoContainer.appendChild(subtitleContainer);
         }
@@ -63,41 +135,95 @@ console.log('Content script đang chạy...');
     }
 
     try {
-        updateStatus('Đang gửi yêu cầu...', 10);
+        updateStatus('Đang kết nối server...', 10, 'loading');
         const videoUrl = window.location.href;
-        const initialResponse = await fetch('http://127.0.0.1:5000/process', {
+
+        const initialResponse = await fetch(`${serverUrl}/transcribe`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ video_url: videoUrl, language_code: languageCode }),
         });
+        
         const initialData = await initialResponse.json();
 
-        if (initialData.status === 'received') {
-            updateStatus('Server đã nhận yêu cầu.', 15);
-            const intervalId = setInterval(async () => {
-                try {
-                    const statusResponse = await fetch(`http://127.0.0.1:5000/status?video_id=${initialData.video_id}`);
-                    const statusData = await statusResponse.json();
+        if (initialResponse.ok && initialResponse.status === 200) {
+            updateStatus('Server đã nhận yêu cầu', 20, 'success');
+            
+            // Check if we have actual subtitle data
+            if (initialData.subtitles && Array.isArray(initialData.subtitles) && initialData.subtitles.length > 0) {
+                // Use real subtitle data
+                updateStatus('Phụ đề đã sẵn sàng!', 100, 'success');
+                setupSubtitleDisplay(initialData.subtitles);
+                setTimeout(() => { 
+                    statusDisplay.style.opacity = '0'; 
+                    statusDisplay.style.transform = 'translateX(50px)';
+                    setTimeout(() => statusDisplay.remove(), 300);
+                }, 3000);
+            } else if (initialData.status === 'received' && initialData.video_id) {
+                // Poll for status updates
+                const intervalId = setInterval(async () => {
+                    try {
+                        const statusResponse = await fetch(`${serverUrl}/status?video_id=${initialData.video_id}`);
+                        const statusData = await statusResponse.json();
 
-                    updateStatus(statusData.message, statusData.progress);
+                        // Determine status type based on message
+                        let statusType = 'processing';
+                        if (statusData.message.includes('tải')) statusType = 'download';
+                        if (statusData.message.includes('chuyển đổi') || statusData.message.includes('transcrib')) statusType = 'transcribe';
 
-                    if (statusData.status === 'transcription_complete') {
+                        updateStatus(statusData.message, statusData.progress, statusType);
+
+                        if (statusData.status === 'transcription_complete') {
+                            clearInterval(intervalId);
+                            
+                            if (statusData.subtitles && Array.isArray(statusData.subtitles)) {
+                                setupSubtitleDisplay(statusData.subtitles);
+                                updateStatus('Phụ đề đã sẵn sàng!', 100, 'success');
+                            } else {
+                                // Mock subtitle for testing
+                                const mockSubtitles = [
+                                    { start: 0, end: 5, text: "OK - Phụ đề mẫu đã được tạo" },
+                                    { start: 5, end: 10, text: "Đây là dòng phụ đề thứ hai" },
+                                    { start: 10, end: 15, text: "Backend sẽ gửi dữ liệu thực sau" }
+                                ];
+                                setupSubtitleDisplay(mockSubtitles);
+                                updateStatus('✨ Hoàn tất! (Mock subtitle)', 100, 'success');
+                            }
+                            
+                            setTimeout(() => { 
+                                statusDisplay.style.opacity = '0'; 
+                                statusDisplay.style.transform = 'translateX(50px)';
+                                setTimeout(() => statusDisplay.remove(), 300);
+                            }, 5000);
+                        } else if (statusData.status === 'error') {
+                            clearInterval(intervalId);
+                            updateStatus(`Lỗi: ${statusData.message}`, statusData.progress, 'error');
+                        }
+                    } catch (pollError) {
                         clearInterval(intervalId);
-                        setupSubtitleDisplay(statusData.subtitles);
-                        setTimeout(() => { statusDisplay.style.opacity = '0'; statusDisplay.style.pointerEvents = 'none'; }, 5000);
-                    } else if (statusData.status === 'error') {
-                        clearInterval(intervalId);
-                        updateStatus(`Lỗi: ${statusData.message}`, statusData.progress, true);
+                        updateStatus('Lỗi kết nối khi kiểm tra trạng thái', null, 'error');
                     }
-                } catch (pollError) {
-                    clearInterval(intervalId);
-                    updateStatus('Lỗi kết nối khi kiểm tra trạng thái.', null, true);
-                }
-            }, 2000);
+                }, 2000);
+            } else {
+                // If backend just returns 200 OK without subtitle data or polling info
+                const mockSubtitles = [
+                    { start: 0, end: 5, text: "OK - Đã nhận phản hồi từ server" },
+                    { start: 5, end: 10, text: "Phụ đề mẫu đang hiển thị" },
+                    { start: 10, end: 15, text: "Backend sẽ cập nhật dữ liệu thực" }
+                ];
+                setupSubtitleDisplay(mockSubtitles);
+                updateStatus('✨ Hoàn tất! (Mock subtitle)', 100, 'success');
+                setTimeout(() => { 
+                    statusDisplay.style.opacity = '0'; 
+                    statusDisplay.style.transform = 'translateX(50px)';
+                    setTimeout(() => statusDisplay.remove(), 300);
+                }, 5000);
+            }
         } else {
-            updateStatus(`Server phản hồi: ${initialData.message}`, 100, true);
+            updateStatus(`Server phản hồi: ${initialData.message || 'Lỗi không xác định'}`, 100, 'error');
         }
     } catch (error) {
-        updateStatus('Lỗi: Không thể gửi yêu cầu đến server.', 100, true);
+        console.error('Error:', error);
+        updateStatus('❌ Không thể kết nối đến server', 100, 'error');
     }
 })();
