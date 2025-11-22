@@ -1,0 +1,29 @@
+{
+  "name": "Real-time Audio Streamer",
+  "description": "Capture tab audio and stream to WebSocket",
+  "version": "1.0",
+  "manifest_version": 3,
+  "permissions": [
+    "tabCapture",
+    "offscreen",
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "ws://*/*",
+    "wss://*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Real-time Audio Streamer"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

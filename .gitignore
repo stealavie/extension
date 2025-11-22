@@ -1,5 +1,7 @@
-# venv
-server/venv/
+# venv - ignore all venv folders at any level
+**/venv/
+venv/
 
-#downloads
-server/downloads/
+# downloads - ignore all downloads folders at any level
+**/downloads/
+downloads/
