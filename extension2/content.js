@@ -1,8 +1,10 @@
 let subtitleOverlay = null;
-let hideTimer = null;
+let subtitleCache = []; // Store all subtitles: { text, start, end }
+let currentSubtitle = null; // Track currently displayed subtitle
+let positionInterval = null; // Timer to update position
 
 // 1. Create the Subtitle UI that works on any platform
-function getOrCreateOverlay(videoElement) {
+function getOrCreateOverlay() {
     // If we already have one and it's still in the DOM, return it
     if (subtitleOverlay && document.body.contains(subtitleOverlay)) {
         return subtitleOverlay;
@@ -11,131 +13,173 @@ function getOrCreateOverlay(videoElement) {
     // Create the container
     const div = document.createElement('div');
     div.id = 'live-subtitle-overlay';
-    
-    console.log('[Content] Creating subtitle overlay');
-    
-    // Use FIXED positioning to work on any platform
+
+    console.log('[Content] Creating subtitle overlay (Fixed Overlay Mode v2)');
+
+    // Use FIXED positioning attached to BODY
+    // We will update top/left/width dynamically to match the video
     Object.assign(div.style, {
-        position: 'fixed',         // Fixed to viewport, not relative to parent
-        bottom: '80px',            // Distance from bottom of screen
-        left: '50%',
-        transform: 'translateX(-50%)',
-        width: 'auto',
-        maxWidth: '80%',           // Max width
+        position: 'fixed',
         textAlign: 'center',
         color: 'white',
-        fontSize: '28px',
+        fontSize: '24px',
         fontFamily: 'Arial, sans-serif',
         fontWeight: 'bold',
-        textShadow: '0px 0px 6px black, 2px 2px 6px black, -2px -2px 6px black', // Strong outline
-        backgroundColor: 'rgba(0, 0, 0, 0.8)', // More opaque background
-        padding: '10px 20px',
-        borderRadius: '8px',
-        zIndex: '2147483647',      // Maximum Z-Index to stay on top
-        pointerEvents: 'none',     // Allow clicks to pass through
-        transition: 'opacity 0.3s ease-in-out',
+        textShadow: '0px 0px 4px black, 1px 1px 4px black, -1px -1px 4px black',
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        padding: '8px 16px',
+        borderRadius: '6px',
+        zIndex: '2147483647',      // Maximum Z-Index
+        pointerEvents: 'none',     // Click-through
+        transition: 'opacity 0.2s ease-in-out',
         opacity: '0',              // Hidden by default
         wordWrap: 'break-word',
-        whiteSpace: 'pre-wrap'
+        whiteSpace: 'pre-wrap',
+        // Initial off-screen pos
+        top: '-1000px',
+        left: '0'
     });
 
-    // Append directly to body to ensure it's always visible
     document.body.appendChild(div);
-    
-    console.log('[Content] ✅ Subtitle overlay created and appended to body');
-    
     subtitleOverlay = div;
     return div;
 }
 
-// 2. Function to Update Text with timing control
-function updateSubtitle(text, start, end) {
-    const video = document.querySelector('video');
-    if (!video) return;
+// 2. Update Overlay Position to match Video
+function updateOverlayPosition(video) {
+    if (!video || !subtitleOverlay) return;
 
-    const overlay = getOrCreateOverlay(video);
-    const currentTime = video.currentTime;
-    
-    // Calculate when subtitle should appear and disappear based on video timeline
-    const displayDuration = (end - start) * 1000; // Convert to milliseconds
-    
-    console.log('[Content] ⏱️ Subtitle timing:', {
-        videoTime: currentTime.toFixed(2),
-        subtitleStart: start.toFixed(2),
-        subtitleEnd: end.toFixed(2),
-        duration: (displayDuration / 1000).toFixed(2) + 's'
+    const rect = video.getBoundingClientRect();
+
+    // If video is not visible or off-screen, hide overlay
+    if (rect.width === 0 || rect.height === 0) {
+        subtitleOverlay.style.opacity = '0';
+        return;
+    }
+
+    // Position overlay near the bottom of the video rect
+    // We use fixed positioning relative to the viewport
+
+    // Calculate center position
+    const centerX = rect.left + (rect.width / 2);
+
+    // Calculate bottom position (e.g., 10% from bottom of video)
+    // We want it slightly above the bottom controls usually
+    const bottomY = rect.bottom - (rect.height * 0.15);
+
+    Object.assign(subtitleOverlay.style, {
+        width: 'auto',
+        maxWidth: `${rect.width * 0.9}px`, // Max 90% of video width
+        left: `${centerX}px`,
+        top: `${bottomY}px`,
+        transform: 'translate(-50%, -100%)' // Center horizontally, and move up so 'top' is the bottom anchor
     });
-    
-    overlay.innerText = text;
-    overlay.style.opacity = '1';
-
-    // Clear previous timer
-    if (hideTimer) clearTimeout(hideTimer);
-
-    // Auto-hide based on the actual subtitle duration from server
-    hideTimer = setTimeout(() => {
-        overlay.style.opacity = '0';
-    }, displayDuration);
 }
 
-// 3. Listen for Messages from Background/Offscreen
+// 3. Function to Update Text based on current video time
+function updateOverlayState(video) {
+    if (!video) return;
+
+    const currentTime = video.currentTime;
+    const overlay = getOrCreateOverlay();
+
+    // Sync position
+    updateOverlayPosition(video);
+
+    // Find a subtitle that should be visible NOW
+    const activeSubtitle = subtitleCache.find(sub =>
+        currentTime >= sub.start && currentTime <= sub.end
+    );
+
+    if (activeSubtitle) {
+        if (currentSubtitle !== activeSubtitle) {
+            overlay.innerText = activeSubtitle.text;
+            overlay.style.opacity = '1';
+            currentSubtitle = activeSubtitle;
+        }
+    } else {
+        if (currentSubtitle !== null) {
+            overlay.style.opacity = '0';
+            currentSubtitle = null;
+        }
+    }
+}
+
+// 4. Listen for Messages
 chrome.runtime.onMessage.addListener((message) => {
     if (message.type === 'TRANSCRIPTION_RESULT') {
-        console.log('[Content] 📺 Transcription received:', {
+        console.log('[Content] 📺 Transcription received:', message.text);
+
+        subtitleCache.push({
             text: message.text,
             start: message.start,
             end: message.end
         });
-        updateSubtitle(message.text, message.start, message.end);
+
+        subtitleCache.sort((a, b) => a.start - b.start);
+        if (subtitleCache.length > 200) subtitleCache.shift();
+
+        const video = document.querySelector('video');
+        if (video) updateOverlayState(video);
     }
 });
 
-// Helper function to safely send messages
 function safeSendMessage(message) {
     try {
         chrome.runtime.sendMessage(message);
     } catch (error) {
-        // Extension context invalidated (extension reloaded)
         console.log('[Content] Extension reloaded, message not sent:', message.type);
     }
 }
 
-// 4. Monitor Video Events for Sync
+// 5. Monitor Video Events
 function attachVideoListeners() {
     const video = document.querySelector('video');
     if (video) {
-        // 1. Handle Seeking (Time Skip)
+        console.log('[Content] 🎥 Video element found (Fixed Overlay Mode v2)');
+
+        // Clean up old interval if exists
+        if (positionInterval) clearInterval(positionInterval);
+
+        // 1. Seek
         video.addEventListener('seeked', () => {
-            chrome.runtime.sendMessage({
-                type: 'TIME_SYNC',
-                timestamp: video.currentTime
-            });
+            currentSubtitle = null;
+            updateOverlayState(video);
+            chrome.runtime.sendMessage({ type: 'TIME_SYNC', timestamp: video.currentTime });
         });
 
-        // 2. Handle Speed Change
+        // 2. Rate
         video.addEventListener('ratechange', () => {
-            safeSendMessage({
-                type: 'PLAYBACK_RATE',
-                rate: video.playbackRate
-            });
+            safeSendMessage({ type: 'PLAYBACK_RATE', rate: video.playbackRate });
         });
-        
-        // 3. Periodic Sync (Optional but recommended for drift correction)
+
+        // 3. Time Update (Sync + Position)
+        video.addEventListener('timeupdate', () => {
+            updateOverlayState(video);
+        });
+
+        // 4. Scroll/Resize (Update Position)
+        window.addEventListener('scroll', () => updateOverlayPosition(video), { passive: true });
+        window.addEventListener('resize', () => updateOverlayPosition(video), { passive: true });
+
+        // 5. Periodic Position Check (for layout changes that don't trigger resize)
+        positionInterval = setInterval(() => {
+            updateOverlayPosition(video);
+        }, 500);
+
+        // 6. Periodic Sync
         setInterval(() => {
-            if(!video.paused) {
-                safeSendMessage({
-                    type: 'TIME_SYNC',
-                    timestamp: video.currentTime
-                });
+            if (!video.paused) {
+                safeSendMessage({ type: 'TIME_SYNC', timestamp: video.currentTime });
             }
-        }, 2000); // Sync every 2 seconds
+        }, 2000);
     }
 }
 
 // Run on load
 attachVideoListeners();
 
-// Also run if DOM changes (e.g. SPA navigation)
+// Observer for SPA
 const observer = new MutationObserver(() => {
     if (!document.querySelector('video')) return;
     attachVideoListeners();

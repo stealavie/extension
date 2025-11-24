@@ -10,8 +10,16 @@ from pyngrok import ngrok
 
 # --- CONFIGURATION ---
 VAD_SAMPLE_RATE = 16000
-VAD_WINDOW = 512       # Silero specific
-SILENCE_LIMIT = 10     # 10 chunks * 32ms = ~320ms of silence marks "End of Sentence"
+VAD_WINDOW = 512       # Silero specific (512 samples)
+
+# === VAD TRIGGER POINT CONFIGURATION ===
+# Chunk duration: T_chunk = VAD_WINDOW / SAMPLE_RATE = 512 / 16000 = 0.032s (32ms)
+SILENCE_THRESHOLD = 0.3  # seconds - Im lặng > 0.3s để cắt câu
+SILENCE_CHUNKS = int(SILENCE_THRESHOLD / (VAD_WINDOW / VAD_SAMPLE_RATE))  # ~10 chunks
+
+MIN_SENTENCE_LENGTH = 1.0  # seconds - Độ dài tối thiểu để ASR có ý nghĩa
+MAX_SENTENCE_LENGTH = 8.0  # seconds - Force cut để tránh trễ quá lớn
+
 PORT=5001
 
 # ==========================================
@@ -26,8 +34,17 @@ def asr_worker_process(input_queue, output_queue):
 
     # Load ASR Model here (e.g., Whisper)
     # We load it HERE so it lives in this process's memory
-
-    model = whisper.load_model("large-v3") # 'tiny', 'base', 'small', etc.
+    
+    # Check if CUDA is available for faster processing
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"[ASR Worker] Using device: {device}")
+    
+    # Load model - use 'base' or 'small' for faster real-time processing
+    # 'large-v3' is very accurate but slower
+    model = whisper.load_model("base", device=device)
+    
+    # Use fp16 for faster GPU inference
+    use_fp16 = device == "cuda"
 
     print("[ASR Worker] Model Loaded. Waiting for audio...")
 
@@ -40,14 +57,25 @@ def asr_worker_process(input_queue, output_queue):
 
             audio_np, start_offset, duration = data_packet
 
-            # 2. Transcribe
-            # Whisper expects float32 array
-            result = model.transcribe(audio_np, fp16=False)
+            # 2. Transcribe with optimized settings
+            # - no_speech_threshold: Skip if no speech detected (saves time)
+            # - condition_on_previous_text: False for real-time (prevents context dependency)
+            # - beam_size: 1 for greedy decoding (fastest)
+            result = model.transcribe(
+                audio_np, 
+                fp16=use_fp16,
+                language='en',  # Set to 'vi' for Vietnamese or None for auto-detect
+                task='transcribe',
+                no_speech_threshold=0.6,
+                condition_on_previous_text=False,
+                beam_size=1,  # Greedy decoding for speed
+                best_of=1
+            )
             text = result['text'].strip()
 
             if text:
                 end_offset = start_offset + duration
-                print(f"[ASR] {start_offset:.2f}s -> {end_offset:.2f}s: {text}")
+                print(f"[ASR] ⏱️ {start_offset:.2f}s -> {end_offset:.2f}s: {text}")
 
                 # 3. Send result back to Main Process
                 response = {
@@ -89,6 +117,30 @@ async def audio_handler(websocket, vad_model, asr_input_queue, asr_output_queue)
     # Timestamp where the current sentence started
     sentence_start_video_time = 0.0
 
+    def send_to_asr():
+        """Helper function to send buffered audio to ASR worker"""
+        nonlocal sentence_buffer, is_speaking, silence_counter, sentence_start_video_time
+        
+        if len(sentence_buffer) == 0:
+            return
+            
+        print(f"\n[VAD] ✂️ Cutting sentence. Sending {len(sentence_buffer)} chunks to ASR...")
+        
+        # Combine chunks into one big numpy array
+        full_audio = torch.cat(sentence_buffer).numpy()
+        
+        # Calculate duration of the speech segment in video time
+        # (Total samples in buffer / Rate) * Speed
+        speech_duration = (len(full_audio) / VAD_SAMPLE_RATE) * playback_rate
+        
+        # Send to ASR Process via Queue
+        asr_input_queue.put((full_audio, sentence_start_video_time, speech_duration))
+        
+        # Reset
+        sentence_buffer = []
+        is_speaking = False
+        silence_counter = 0
+
     try:
         while True:
             # 1. Check for ASR results to send back to Client
@@ -112,7 +164,7 @@ async def audio_handler(websocket, vad_model, asr_input_queue, asr_output_queue)
                         # Client says: "Video is exactly at X seconds right now"
                         anchor_video_time = float(data['timestamp'])
                         samples_since_anchor = 0 # Reset counter
-                        # print(f"[Sync] Time reset to {anchor_video_time}s")
+                        print(f"[Sync] ⏱️ Time reset to {anchor_video_time:.2f}s")
 
                     elif data.get('type') == 'playback_rate':
                         # Client says: "Video speed changed to X"
@@ -123,7 +175,7 @@ async def audio_handler(websocket, vad_model, asr_input_queue, asr_output_queue)
                         samples_since_anchor = 0
 
                         playback_rate = float(data['rate'])
-                        print(f"[Sync] Speed set to {playback_rate}x")
+                        print(f"[Sync] ⚡ Speed set to {playback_rate}x")
 
                 except json.JSONDecodeError:
                     print("[Error] Invalid JSON received")
@@ -146,10 +198,10 @@ async def audio_handler(websocket, vad_model, asr_input_queue, asr_output_queue)
                 # Calculate current video time for this specific chunk
                 # Formula: Anchor + (AudioDuration * PlaybackRate)
                 # AudioDuration = Samples / SampleRate
-                chunk_duration_wall_clock = VAD_WINDOW / VAD_SAMPLE_RATE
-                chunk_duration_video_time = chunk_duration_wall_clock * playback_rate
-
                 current_video_time = anchor_video_time + ((samples_since_anchor + start) / VAD_SAMPLE_RATE) * playback_rate
+
+                # Calculate buffer duration (in seconds)
+                buffer_duration = (len(sentence_buffer) * VAD_WINDOW) / VAD_SAMPLE_RATE
 
                 # Check VAD
                 # Add dimension [1, 512]
@@ -165,6 +217,13 @@ async def audio_handler(websocket, vad_model, asr_input_queue, asr_output_queue)
                     is_speaking = True
                     silence_counter = 0
                     sentence_buffer.append(chunk)
+                    
+                    # === ĐIỀU KIỆN 2: FORCE CUT (Quá dài) ===
+                    # Nếu buffer > MAX_SENTENCE_LENGTH → BẮT BUỘC CẮT
+                    if buffer_duration >= MAX_SENTENCE_LENGTH:
+                        print(f" [FORCE CUT: {buffer_duration:.2f}s > {MAX_SENTENCE_LENGTH}s]", end="")
+                        send_to_asr()
+                        
                 else:
                     # SILENCE DETECTED
                     if is_speaking:
@@ -172,24 +231,12 @@ async def audio_handler(websocket, vad_model, asr_input_queue, asr_output_queue)
                         sentence_buffer.append(chunk) # Keep slight silence for naturalness
                         silence_counter += 1
 
-                        # 4. END OF SENTENCE LOGIC
-                        if silence_counter >= SILENCE_LIMIT:
-                            print(f"\n[VAD] End of sentence detected. Sending {len(sentence_buffer)} chunks to ASR...")
-
-                            # Combine chunks into one big numpy array
-                            full_audio = torch.cat(sentence_buffer).numpy()
-
-                            # Calculate duration of the speech segment in video time
-                            # (Total samples in buffer / Rate) * Speed
-                            speech_duration = (len(full_audio) / VAD_SAMPLE_RATE) * playback_rate
-
-                            # Send to ASR Process via Queue
-                            asr_input_queue.put((full_audio, sentence_start_video_time, speech_duration))
-
-                            # Reset
-                            sentence_buffer = []
-                            is_speaking = False
-                            silence_counter = 0
+                        # === ĐIỀU KIỆN 1: ĐỦ CÂU (Im lặng + Độ dài hợp lý) ===
+                        # Im lặng > SILENCE_THRESHOLD VÀ Buffer >= MIN_SENTENCE_LENGTH
+                        if silence_counter >= SILENCE_CHUNKS and buffer_duration >= MIN_SENTENCE_LENGTH:
+                            silence_duration = (silence_counter * VAD_WINDOW) / VAD_SAMPLE_RATE
+                            print(f" [SENTENCE END: silence={silence_duration:.2f}s, len={buffer_duration:.2f}s]", end="")
+                            send_to_asr()
 
             # Update sample counter
             samples_since_anchor += len(audio_tensor)
