@@ -26,6 +26,19 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
             }
         });
     }
+    // Forward MAX_CAPTURED_TIME_UPDATE from Offscreen -> Active Tab
+    else if (message.type === 'MAX_CAPTURED_TIME_UPDATE') {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0]) {
+                chrome.tabs.sendMessage(tabs[0].id, {
+                    type: 'MAX_CAPTURED_TIME',
+                    timestamp: message.timestamp
+                }).catch(() => {
+                    // Ignore if content script is not ready
+                });
+            }
+        });
+    }
     // Forward TIME_SYNC and PLAYBACK_RATE from Content Script -> Offscreen
     else if (message.type === 'TIME_SYNC' || message.type === 'PLAYBACK_RATE') {
         // Forward to offscreen document

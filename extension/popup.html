@@ -85,6 +85,42 @@
                 </select>
             </div>
 
+            <!-- Source Language Selection -->
+            <div class="input-group">
+                <label for="source-lang">
+                    <span class="label-text">Source Language</span>
+                    <span class="label-hint">Language being spoken in the video</span>
+                </label>
+                <div class="lang-toggle">
+                    <button class="lang-btn source-lang-btn active" data-lang="0">
+                        <span class="flag">🇬🇧</span>
+                        <span class="lang-name">English</span>
+                    </button>
+                    <button class="lang-btn source-lang-btn" data-lang="1">
+                        <span class="flag">🇻🇳</span>
+                        <span class="lang-name">Vietnamese</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Target Language Selection -->
+            <div class="input-group">
+                <label for="target-lang">
+                    <span class="label-text">Target Language</span>
+                    <span class="label-hint">Translate to</span>
+                </label>
+                <div class="lang-toggle">
+                    <button class="lang-btn target-lang-btn" data-lang="0">
+                        <span class="flag">🇬🇧</span>
+                        <span class="lang-name">English</span>
+                    </button>
+                    <button class="lang-btn target-lang-btn active" data-lang="1">
+                        <span class="flag">🇻🇳</span>
+                        <span class="lang-name">Vietnamese</span>
+                    </button>
+                </div>
+            </div>
+
             <!-- Translation Model Selection -->
             <div class="input-group">
                 <label for="translation-model">
@@ -97,30 +133,18 @@
                 </select>
             </div>
 
-            <!-- Target Language Selection -->
+            <!-- Server URL Field -->
             <div class="input-group">
-                <label for="target-lang">
-                    <span class="label-text">Target Language</span>
-                    <span class="label-hint">Translate to</span>
+                <label for="server-url-input">
+                    <span class="label-text">Server URL *</span>
+                    <span class="label-hint">Backend WebSocket endpoint</span>
                 </label>
-                <div class="lang-toggle">
-                    <button class="lang-btn active" data-lang="vie">
-                        <span class="flag">🇻🇳</span>
-                        <span class="lang-name">Vietnamese</span>
-                    </button>
-                    <button class="lang-btn" data-lang="en">
-                        <span class="flag">🇬🇧</span>
-                        <span class="lang-name">English</span>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Server Info -->
-            <div class="info-card">
-                <div class="info-row">
-                    <span class="info-label">Server:</span>
-                    <span id="server-url" class="info-value">Not configured</span>
-                </div>
+                <input 
+                    type="text" 
+                    id="server-url-input" 
+                    placeholder="wss://example.ngrok-free.app"
+                    autocomplete="off"
+                >
             </div>
         </div>
     </div>

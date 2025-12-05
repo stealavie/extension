@@ -3,6 +3,7 @@ let audioContext = null;
 let processor = null;
 let stream = null;
 let currentConfig = null;
+let maxCapturedTime = 0; // Track the furthest timestamp we've sent audio for
 
 console.log('[Offscreen] Script loaded');
 
@@ -18,6 +19,11 @@ chrome.runtime.onMessage.addListener((message) => {
     }
     // Forward sync messages to WebSocket
     else if (message.type === 'TIME_SYNC' && socket && socket.readyState === WebSocket.OPEN) {
+        // Update our max captured time tracker
+        if (message.timestamp > maxCapturedTime) {
+            maxCapturedTime = message.timestamp;
+        }
+        
         socket.send(JSON.stringify({
             type: 'time_sync',
             timestamp: message.timestamp
@@ -99,7 +105,31 @@ async function startCapture(streamId) {
     workletNode.port.onmessage = (e) => {
         // e.data contains the Int16Array from the processor
         if (socket.readyState === WebSocket.OPEN) {
-            socket.send(e.data);
+            // Prepend header: [origin_lang (1 byte), target_lang (1 byte), timestamp (8 bytes)]
+            const audioData = e.data;
+            const headerSize = 10; // 1 + 1 + 8 bytes
+            const packet = new Uint8Array(headerSize + audioData.byteLength);
+            
+            // Byte 0: Source/Origin Language (0=English, 1=Vietnamese)
+            packet[0] = currentConfig.sourceLang || 0;
+            
+            // Byte 1: Target Language (0=English, 1=Vietnamese)
+            packet[1] = currentConfig.targetLang || 1;
+            
+            // Bytes 2-9: Timestamp (8 bytes, uint64 little-endian)
+            const timestamp = BigInt(Date.now());
+            const view = new DataView(packet.buffer);
+            view.setBigUint64(2, timestamp, true); // true = little-endian
+            
+            // Bytes 10+: Audio data (Int16Array as bytes)
+            packet.set(new Uint8Array(audioData.buffer), headerSize);
+            
+            // Send the complete packet
+            socket.send(packet);
+            
+            // Update maxCapturedTime based on audio buffer duration
+            // Assuming each packet represents ~0.1 seconds of audio
+            maxCapturedTime += 0.1;
         }
     };
 
@@ -116,6 +146,12 @@ async function startCapture(streamId) {
                     end: data.end,
                     timestamp: data.timestamp
                 });
+                
+                // Update maxCapturedTime based on server response
+                if (data.end > maxCapturedTime) {
+                    maxCapturedTime = data.end;
+                }
+                
                 // Send to Background, which forwards to Content Script
                 chrome.runtime.sendMessage({
                     type: 'TRANSCRIPTION_RESULT',
@@ -129,6 +165,18 @@ async function startCapture(streamId) {
             console.error("[Offscreen] ❌ Error parsing server message:", e);
         }
     };
+    
+    // Periodically broadcast maxCapturedTime to content script
+    setInterval(() => {
+        try {
+            chrome.runtime.sendMessage({
+                type: 'MAX_CAPTURED_TIME_UPDATE',
+                timestamp: maxCapturedTime
+            });
+        } catch (e) {
+            // Ignore if content script is not ready
+        }
+    }, 1000); // Every second
 
     // Connect Graph
     // Source -> Worklet -> Destination (to keep audio alive)

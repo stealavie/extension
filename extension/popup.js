@@ -3,7 +3,8 @@ const DEFAULT_CONFIG = {
     wsUrl: '',
     asrModel: 'wav2vec',
     translationModel: 'mbart',
-    targetLang: 'vie'
+    sourceLang: 0,
+    targetLang: 1
 };
 
 // DOM Elements
@@ -19,8 +20,9 @@ const statusIndicator = document.getElementById('status-indicator');
 const statusText = document.getElementById('status-text');
 const asrModelSelect = document.getElementById('asr-model');
 const translationModelSelect = document.getElementById('translation-model');
-const langButtons = document.querySelectorAll('.lang-btn');
-const serverUrlDisplay = document.getElementById('server-url');
+const sourceLangButtons = document.querySelectorAll('.source-lang-btn');
+const targetLangButtons = document.querySelectorAll('.target-lang-btn');
+const serverUrlInput = document.getElementById('server-url-input');
 
 let isRecording = false;
 let currentConfig = { ...DEFAULT_CONFIG };
@@ -47,16 +49,19 @@ async function loadConfig() {
     
     // Populate UI with saved values
     wsUrlInput.value = currentConfig.wsUrl || '';
+    serverUrlInput.value = currentConfig.wsUrl || '';
     asrModelSelect.value = currentConfig.asrModel;
     translationModelSelect.value = currentConfig.translationModel;
     
-    // Set active language button
-    langButtons.forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.lang === currentConfig.targetLang);
+    // Set active source language button
+    sourceLangButtons.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.lang === String(currentConfig.sourceLang));
     });
     
-    // Update server URL display
-    updateServerDisplay();
+    // Set active target language button
+    targetLangButtons.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.lang === String(currentConfig.targetLang));
+    });
 }
 
 // Save configuration
@@ -77,6 +82,12 @@ function setupEventListeners() {
     backToSettingsBtn.addEventListener('click', showSettingsPage);
     recordBtn.addEventListener('click', toggleRecording);
     
+    // Server URL input field
+    serverUrlInput.addEventListener('input', (e) => {
+        currentConfig.wsUrl = e.target.value.trim();
+        saveConfig();
+    });
+    
     // Model selects
     asrModelSelect.addEventListener('change', (e) => {
         currentConfig.asrModel = e.target.value;
@@ -88,12 +99,21 @@ function setupEventListeners() {
         saveConfig();
     });
     
-    // Language buttons
-    langButtons.forEach(btn => {
+    // Language buttons - convert string to number
+    sourceLangButtons.forEach(btn => {
         btn.addEventListener('click', () => {
-            langButtons.forEach(b => b.classList.remove('active'));
+            sourceLangButtons.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            currentConfig.targetLang = btn.dataset.lang;
+            currentConfig.sourceLang = parseInt(btn.dataset.lang);
+            saveConfig();
+        });
+    });
+    
+    targetLangButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            targetLangButtons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentConfig.targetLang = parseInt(btn.dataset.lang);
             saveConfig();
         });
     });
@@ -176,7 +196,7 @@ async function saveAndContinue() {
     
     currentConfig.wsUrl = url;
     await saveConfig();
-    updateServerDisplay();
+    serverUrlInput.value = url;
     showMainPage();
 }
 
@@ -190,21 +210,6 @@ function showStatus(type, message) {
         setTimeout(() => {
             connectionStatus.classList.add('hidden');
         }, 3000);
-    }
-}
-
-// Update server URL display
-function updateServerDisplay() {
-    if (currentConfig.wsUrl) {
-        try {
-            const url = new URL(currentConfig.wsUrl);
-            serverUrlDisplay.textContent = url.hostname;
-            serverUrlDisplay.title = currentConfig.wsUrl;
-        } catch {
-            serverUrlDisplay.textContent = currentConfig.wsUrl;
-        }
-    } else {
-        serverUrlDisplay.textContent = 'Not configured';
     }
 }
 
@@ -239,7 +244,8 @@ function updateRecordingState() {
         // Disable model/language changes during recording
         asrModelSelect.disabled = true;
         translationModelSelect.disabled = true;
-        langButtons.forEach(btn => btn.disabled = true);
+        sourceLangButtons.forEach(btn => btn.disabled = true);
+        targetLangButtons.forEach(btn => btn.disabled = true);
     } else {
         recordBtn.classList.remove('recording');
         recordBtn.querySelector('.record-text').textContent = 'Start Recording';
@@ -249,7 +255,8 @@ function updateRecordingState() {
         // Enable controls
         asrModelSelect.disabled = false;
         translationModelSelect.disabled = false;
-        langButtons.forEach(btn => btn.disabled = false);
+        sourceLangButtons.forEach(btn => btn.disabled = false);
+        targetLangButtons.forEach(btn => btn.disabled = false);
     }
 }
 
