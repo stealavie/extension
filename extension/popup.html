@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Audio Streamer</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <!-- Settings Page -->
+    <div id="settings-page" class="page active">
+        <div class="header">
+            <h1>⚙️ Settings</h1>
+            <p class="subtitle">Configure your backend connection</p>
+        </div>
+        
+        <div class="content">
+            <div class="input-group">
+                <label for="ws-url">
+                    <span class="label-text">WebSocket Server URL</span>
+                    <span class="label-hint">Enter your backend WebSocket endpoint</span>
+                </label>
+                <input 
+                    type="text" 
+                    id="ws-url" 
+                    placeholder="wss://example.ngrok-free.app"
+                    autocomplete="off"
+                >
+            </div>
+
+            <div class="button-group">
+                <button id="test-connection" class="btn btn-secondary">
+                    <span class="btn-icon">🔌</span>
+                    Test Connection
+                </button>
+                <button id="save-settings" class="btn btn-primary">
+                    <span class="btn-icon">✓</span>
+                    Save & Continue
+                </button>
+            </div>
+
+            <div id="connection-status" class="status-message hidden"></div>
+        </div>
+    </div>
+
+    <!-- Main Page -->
+    <div id="main-page" class="page">
+        <div class="header">
+            <button id="back-to-settings" class="icon-btn" title="Settings">
+                <span>⚙️</span>
+            </button>
+            <h1>🎙️ Audio Streamer</h1>
+        </div>
+
+        <div class="content">
+            <!-- Recording Status -->
+            <div class="status-card">
+                <div class="status-indicator" id="status-indicator">
+                    <div class="pulse-dot"></div>
+                    <span id="status-text">Ready</span>
+                </div>
+            </div>
+
+            <!-- Main Control Button -->
+            <button id="record-btn" class="record-btn">
+                <div class="record-icon">
+                    <svg width="32" height="32" viewBox="0 0 32 32">
+                        <circle cx="16" cy="16" r="12" fill="currentColor"/>
+                    </svg>
+                </div>
+                <span class="record-text">Start Recording</span>
+            </button>
+
+            <!-- ASR Model Selection -->
+            <div class="input-group">
+                <label for="asr-model">
+                    <span class="label-text">ASR Model</span>
+                    <span class="label-hint">Speech recognition model</span>
+                </label>
+                <select id="asr-model" class="select-input">
+                    <option value="whisper-tiny">Whisper Tiny (Fast)</option>
+                    <option value="whisper-base" selected>Whisper Base (Balanced)</option>
+                    <option value="whisper-small">Whisper Small (Accurate)</option>
+                    <option value="whisper-medium">Whisper Medium (High Quality)</option>
+                    <option value="whisper-large">Whisper Large (Best)</option>
+                </select>
+            </div>
+
+            <!-- Translation Model Selection -->
+            <div class="input-group">
+                <label for="translation-model">
+                    <span class="label-text">Translation Model</span>
+                    <span class="label-hint">Language translation model</span>
+                </label>
+                <select id="translation-model" class="select-input">
+                    <option value="google-translate" selected>Google Translate</option>
+                    <option value="deepl">DeepL</option>
+                    <option value="microsoft">Microsoft Translator</option>
+                    <option value="opus-mt">OPUS-MT</option>
+                </select>
+            </div>
+
+            <!-- Target Language Selection -->
+            <div class="input-group">
+                <label for="target-lang">
+                    <span class="label-text">Target Language</span>
+                    <span class="label-hint">Translate to</span>
+                </label>
+                <div class="lang-toggle">
+                    <button class="lang-btn active" data-lang="vie">
+                        <span class="flag">🇻🇳</span>
+                        <span class="lang-name">Vietnamese</span>
+                    </button>
+                    <button class="lang-btn" data-lang="en">
+                        <span class="flag">🇬🇧</span>
+                        <span class="lang-name">English</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Server Info -->
+            <div class="info-card">
+                <div class="info-row">
+                    <span class="info-label">Server:</span>
+                    <span id="server-url" class="info-value">Not configured</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>

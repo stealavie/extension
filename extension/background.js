@@ -1,5 +1,3 @@
-let recordingTabId = null;
-
 // Khi Extension mới được cài hoặc reload, reset trạng thái về OFF
 chrome.runtime.onInstalled.addListener(() => {
     chrome.storage.local.set({ isRecording: false });
@@ -39,35 +37,15 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     }
 });
 
-// Listen for tab updates to handle navigation reset
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    // If the tab being recorded navigates to a new URL
-    if (recordingTabId !== null && tabId === recordingTabId && changeInfo.status === 'loading') {
-        console.log('[Background] 🔄 Detected navigation on recording tab. Stopping recording...');
-        stopRecording();
-    }
-});
-
-// Also listen for tab removal (closing the tab)
-chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
-    if (recordingTabId !== null && tabId === recordingTabId) {
-        console.log('[Background] ❌ Recording tab closed. Stopping recording...');
-        stopRecording();
-    }
-});
-
 async function startRecording(config) {
     try {
         // Get active tab
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
+        
         if (!tab) {
             console.error('No active tab found');
             return;
         }
-
-        // Store the tab ID
-        recordingTabId = tab.id;
 
         // Check and create offscreen document if needed
         const existingContexts = await chrome.runtime.getContexts({});
@@ -103,7 +81,6 @@ async function startRecording(config) {
     } catch (error) {
         console.error('Error starting recording:', error);
         await chrome.storage.local.set({ isRecording: false });
-        recordingTabId = null;
     }
 }
 
@@ -125,9 +102,6 @@ async function stopRecording() {
 
         // Update state
         await chrome.storage.local.set({ isRecording: false });
-
-        // Reset tab ID
-        recordingTabId = null;
 
     } catch (error) {
         console.error('Error stopping recording:', error);
