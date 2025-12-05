@@ -78,11 +78,10 @@
                     <span class="label-hint">Speech recognition model</span>
                 </label>
                 <select id="asr-model" class="select-input">
-                    <option value="whisper-tiny">Whisper Tiny (Fast)</option>
-                    <option value="whisper-base" selected>Whisper Base (Balanced)</option>
-                    <option value="whisper-small">Whisper Small (Accurate)</option>
-                    <option value="whisper-medium">Whisper Medium (High Quality)</option>
-                    <option value="whisper-large">Whisper Large (Best)</option>
+                    <option value="wav2vec" selected>Wav2Vec (Fast)</option>
+                    <option value="whisper_tiny">Whisper Tiny (Balanced)</option>
+                    <option value="whisper_finetuned">Whisper Finetuned (Accurate)</option>
+                    <option value="whisper_largev3">Whisper Large v3 (Best)</option>
                 </select>
             </div>
 
@@ -93,10 +92,8 @@
                     <span class="label-hint">Language translation model</span>
                 </label>
                 <select id="translation-model" class="select-input">
-                    <option value="google-translate" selected>Google Translate</option>
-                    <option value="deepl">DeepL</option>
-                    <option value="microsoft">Microsoft Translator</option>
-                    <option value="opus-mt">OPUS-MT</option>
+                    <option value="mbart" selected>mBART (Standard)</option>
+                    <option value="mbartv2">mBART v2 (Enhanced)</option>
                 </select>
             </div>
 

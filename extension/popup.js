@@ -1,8 +1,8 @@
 // Default configuration
 const DEFAULT_CONFIG = {
     wsUrl: '',
-    asrModel: 'whisper-base',
-    translationModel: 'google-translate',
+    asrModel: 'wav2vec',
+    translationModel: 'mbart',
     targetLang: 'vie'
 };
 

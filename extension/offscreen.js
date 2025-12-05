@@ -50,8 +50,9 @@ async function startCapture(streamId) {
         // Send configuration to server
         socket.send(JSON.stringify({
             type: 'config',
-            asrModel: currentConfig.asrModel,
+            transcriptionModel: currentConfig.asrModel,
             translationModel: currentConfig.translationModel,
+            sourceLang: 'auto',
             targetLang: currentConfig.targetLang
         }));
     };
