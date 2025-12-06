@@ -169,6 +169,13 @@ input[type="text"]::placeholder {
     cursor: pointer;
 }
 
+.select-input:disabled {
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
 /* Buttons */
 .button-group {
     display: flex;

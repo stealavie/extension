@@ -252,11 +252,9 @@ function updateRecordingState() {
         statusIndicator.classList.add('active');
         statusText.textContent = 'Recording...';
         
-        // Disable model/language changes during recording
+        // Disable model changes during recording
         asrModelSelect.disabled = true;
         translationModelSelect.disabled = true;
-        originLangButtons.forEach(btn => btn.disabled = true);
-        targetLangButtons.forEach(btn => btn.disabled = true);
     } else {
         recordBtn.classList.remove('recording');
         recordBtn.querySelector('.record-text').textContent = 'Start Recording';
@@ -266,8 +264,6 @@ function updateRecordingState() {
         // Enable controls
         asrModelSelect.disabled = false;
         translationModelSelect.disabled = false;
-        originLangButtons.forEach(btn => btn.disabled = false);
-        targetLangButtons.forEach(btn => btn.disabled = false);
     }
 }
 

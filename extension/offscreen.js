@@ -53,9 +53,7 @@ async function startCapture(streamId) {
         socket.send(JSON.stringify({
             type: 'config',
             asrModel: currentConfig.asrModel,
-            translationModel: currentConfig.translationModel,
-            originLang: currentConfig.originLang,
-            targetLang: currentConfig.targetLang
+            translationModel: currentConfig.translationModel
         }));
     };
     
