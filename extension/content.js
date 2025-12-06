@@ -2,22 +2,27 @@ let subtitleOverlay = null;
 let subtitleCache = []; // Store all subtitles: { text, start, end }
 let currentSubtitle = null; // Track currently displayed subtitle
 let positionInterval = null; // Timer to update position
+let subtitleOverlayTop = null; // Top subtitle overlay
+let subtitleOverlayBottom = null; // Bottom subtitle overlay
+let messageCount = 0; // Track message index (odd/even)
 
 // 1. Create the Subtitle UI that works on any platform
-function getOrCreateOverlay() {
-    // If we already have one and it's still in the DOM, return it
-    if (subtitleOverlay && document.body.contains(subtitleOverlay)) {
-        return subtitleOverlay;
+function getOrCreateOverlay(position = 'bottom') {
+    // Check if we already have overlays
+    const overlayId = position === 'top' ? 'live-subtitle-overlay-top' : 'live-subtitle-overlay-bottom';
+    let overlay = position === 'top' ? subtitleOverlayTop : subtitleOverlayBottom;
+    
+    if (overlay && document.body.contains(overlay)) {
+        return overlay;
     }
 
     // Create the container
     const div = document.createElement('div');
-    div.id = 'live-subtitle-overlay';
+    div.id = overlayId;
 
-    console.log('[Content] Creating subtitle overlay (Fixed Overlay Mode v2)');
+    console.log(`[Content] Creating subtitle overlay at ${position}`);
 
     // Use FIXED positioning attached to BODY
-    // We will update top/left/width dynamically to match the video
     Object.assign(div.style, {
         position: 'fixed',
         textAlign: 'center',
@@ -29,51 +34,68 @@ function getOrCreateOverlay() {
         backgroundColor: 'rgba(0, 0, 0, 0.6)',
         padding: '8px 16px',
         borderRadius: '6px',
-        zIndex: '2147483647',      // Maximum Z-Index
-        pointerEvents: 'none',     // Click-through
+        zIndex: position === 'top' ? '2147483647' : '2147483646',
+        pointerEvents: 'none',
         transition: 'opacity 0.2s ease-in-out',
-        opacity: '0',              // Hidden by default
+        opacity: '0',
         wordWrap: 'break-word',
         whiteSpace: 'pre-wrap',
-        // Initial off-screen pos
         top: '-1000px',
         left: '0'
     });
 
     document.body.appendChild(div);
-    subtitleOverlay = div;
+    
+    if (position === 'top') {
+        subtitleOverlayTop = div;
+    } else {
+        subtitleOverlayBottom = div;
+    }
+    
     return div;
 }
 
 // 2. Update Overlay Position to match Video
 function updateOverlayPosition(video) {
-    if (!video || !subtitleOverlay) return;
+    if (!video) return;
 
     const rect = video.getBoundingClientRect();
 
-    // If video is not visible or off-screen, hide overlay
+    // If video is not visible or off-screen, hide overlays
     if (rect.width === 0 || rect.height === 0) {
-        subtitleOverlay.style.opacity = '0';
+        if (subtitleOverlayTop) subtitleOverlayTop.style.opacity = '0';
+        if (subtitleOverlayBottom) subtitleOverlayBottom.style.opacity = '0';
         return;
     }
-
-    // Position overlay near the bottom of the video rect
-    // We use fixed positioning relative to the viewport
 
     // Calculate center position
     const centerX = rect.left + (rect.width / 2);
 
-    // Calculate bottom position (e.g., 10% from bottom of video)
-    // We want it slightly above the bottom controls usually
-    const bottomY = rect.bottom - (rect.height * 0.15);
+    // Calculate positions for top and bottom subtitles
+    const bottomY = rect.bottom - (rect.height * 0.15); // Bottom subtitle position
+    const topY = rect.bottom - (rect.height * 0.25); // Top subtitle position (above bottom)
 
-    Object.assign(subtitleOverlay.style, {
-        width: 'auto',
-        maxWidth: `${rect.width * 0.9}px`, // Max 90% of video width
-        left: `${centerX}px`,
-        top: `${bottomY}px`,
-        transform: 'translate(-50%, -100%)' // Center horizontally, and move up so 'top' is the bottom anchor
-    });
+    // Update top overlay position
+    if (subtitleOverlayTop) {
+        Object.assign(subtitleOverlayTop.style, {
+            width: 'auto',
+            maxWidth: `${rect.width * 0.9}px`,
+            left: `${centerX}px`,
+            top: `${topY}px`,
+            transform: 'translate(-50%, -100%)'
+        });
+    }
+
+    // Update bottom overlay position
+    if (subtitleOverlayBottom) {
+        Object.assign(subtitleOverlayBottom.style, {
+            width: 'auto',
+            maxWidth: `${rect.width * 0.9}px`,
+            left: `${centerX}px`,
+            top: `${bottomY}px`,
+            transform: 'translate(-50%, -100%)'
+        });
+    }
 }
 
 // 3. Function to Update Text based on current video time
@@ -81,39 +103,68 @@ function updateOverlayState(video) {
     if (!video) return;
 
     const currentTime = video.currentTime;
-    const overlay = getOrCreateOverlay();
+    const topOverlay = getOrCreateOverlay('top');
+    const bottomOverlay = getOrCreateOverlay('bottom');
 
     // Sync position
     updateOverlayPosition(video);
 
-    // Find a subtitle that should be visible NOW
-    const activeSubtitle = subtitleCache.find(sub =>
-        currentTime >= sub.start && currentTime <= sub.end
-    );
+    // Find active subtitles for top (odd messages) and bottom (even messages)
+    let topSubtitle = null;
+    let bottomSubtitle = null;
 
-    if (activeSubtitle) {
-        if (currentSubtitle !== activeSubtitle) {
-            overlay.innerText = activeSubtitle.text;
-            overlay.style.opacity = '1';
-            currentSubtitle = activeSubtitle;
+    // Find the most recent odd and even messages that should be visible
+    for (let i = subtitleCache.length - 1; i >= 0; i--) {
+        const sub = subtitleCache[i];
+        if (currentTime >= sub.start && currentTime <= sub.end) {
+            if (sub.isOdd && !topSubtitle) {
+                topSubtitle = sub;
+            } else if (!sub.isOdd && !bottomSubtitle) {
+                bottomSubtitle = sub;
+            }
+            
+            // Stop if we found both
+            if (topSubtitle && bottomSubtitle) break;
         }
+    }
+
+    // Update top overlay
+    if (topSubtitle) {
+        topOverlay.innerText = topSubtitle.text;
+        topOverlay.style.opacity = '1';
     } else {
-        if (currentSubtitle !== null) {
-            overlay.style.opacity = '0';
-            currentSubtitle = null;
-        }
+        topOverlay.style.opacity = '0';
+    }
+
+    // Update bottom overlay
+    if (bottomSubtitle) {
+        bottomOverlay.innerText = bottomSubtitle.text;
+        bottomOverlay.style.opacity = '1';
+    } else {
+        bottomOverlay.style.opacity = '0';
     }
 }
 
 // 4. Listen for Messages
 chrome.runtime.onMessage.addListener((message) => {
     if (message.type === 'TRANSCRIPTION_RESULT') {
+        const receiveTime = Date.now();
+        const latency = Math.abs(receiveTime - message.startClock);
         console.log('[Content] 📺 Transcription received:', message.text);
+        console.log('[Content] ⏱️ Latency:', latency, 'ms');
+
+        messageCount++;
+        const isOdd = messageCount % 2 === 1;
+
+        // Extend end time by 2000ms (2 seconds)
+        const extendedEnd = message.end + 4;
 
         subtitleCache.push({
             text: message.text,
             start: message.start,
-            end: message.end
+            end: extendedEnd,
+            isOdd: isOdd,
+            messageIndex: messageCount
         });
 
         subtitleCache.sort((a, b) => a.start - b.start);
@@ -121,6 +172,26 @@ chrome.runtime.onMessage.addListener((message) => {
 
         const video = document.querySelector('video');
         if (video) updateOverlayState(video);
+        
+        const duration = (message.end - message.start) * 1000;
+
+        // Save latency data to Chrome storage
+        chrome.storage.local.get(['latencyData'], (result) => {
+            const latencyData = result.latencyData || [];
+            latencyData.push({
+                latency: latency,
+                timestamp: receiveTime,
+                text: message.text,
+                duration: duration
+            });
+            
+            // Keep only last 1000 entries to avoid storage limits
+            if (latencyData.length > 1000) {
+                latencyData.shift();
+            }
+            
+            chrome.storage.local.set({ latencyData });
+        });
     }
 });
 

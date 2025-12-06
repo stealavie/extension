@@ -78,10 +78,9 @@
                     <span class="label-hint">Speech recognition model</span>
                 </label>
                 <select id="asr-model" class="select-input">
-                    <option value="wav2vec" selected>Wav2Vec (Fast)</option>
-                    <option value="whisper_tiny">Whisper Tiny (Balanced)</option>
-                    <option value="whisper_finetuned">Whisper Finetuned (Accurate)</option>
-                    <option value="whisper_largev3">Whisper Large v3 (Best)</option>
+                    <option value="whisper-tiny">Whisper Tiny (Fast)</option>
+                    <option value="whisper-finetuned" selected>Whisper finetuned (more accurate)</option>
+                    <option value="wav2vec">Wav2Vec (Accurate)</option default>
                 </select>
             </div>
 
@@ -92,24 +91,39 @@
                     <span class="label-hint">Language translation model</span>
                 </label>
                 <select id="translation-model" class="select-input">
-                    <option value="mbart" selected>mBART (Standard)</option>
-                    <option value="mbartv2">mBART v2 (Enhanced)</option>
+                    <option value="mbart" selected>mBart</option>
                 </select>
+            </div>
+
+            <!-- Original Language Selection -->
+            <div class="input-group">
+                <label for="origin-lang">
+                    <span class="label-text">Original Language</span>
+                </label>
+                <div class="lang-toggle" id="origin-lang">
+                    <button class="lang-btn origin-lang-btn active" data-lang="vie">
+                        <span class="flag">VN</span>
+                        <span class="lang-name">Vietnamese</span>
+                    </button>
+                    <button class="lang-btn origin-lang-btn" data-lang="en">
+                        <span class="flag">US</span>
+                        <span class="lang-name">English</span>
+                    </button>
+                </div>
             </div>
 
             <!-- Target Language Selection -->
             <div class="input-group">
                 <label for="target-lang">
                     <span class="label-text">Target Language</span>
-                    <span class="label-hint">Translate to</span>
                 </label>
-                <div class="lang-toggle">
-                    <button class="lang-btn active" data-lang="vie">
-                        <span class="flag">🇻🇳</span>
+                <div class="lang-toggle" id="target-lang">
+                    <button class="lang-btn target-lang-btn" data-lang="vie">
+                        <span class="flag">VN</span>
                         <span class="lang-name">Vietnamese</span>
                     </button>
-                    <button class="lang-btn" data-lang="en">
-                        <span class="flag">🇬🇧</span>
+                    <button class="lang-btn target-lang-btn active" data-lang="en">
+                        <span class="flag">US</span>
                         <span class="lang-name">English</span>
                     </button>
                 </div>

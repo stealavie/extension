@@ -4,6 +4,10 @@
     box-sizing: border-box;
 }
 
+[hidden] {
+    display: none !important;
+}
+
 :root {
     --primary-color: #6366f1;
     --primary-hover: #4f46e5;
@@ -163,6 +167,13 @@ input[type="text"]::placeholder {
 
 .select-input {
     cursor: pointer;
+}
+
+.select-input:disabled {
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: not-allowed;
+    opacity: 0.6;
 }
 
 /* Buttons */

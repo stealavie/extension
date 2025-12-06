@@ -21,7 +21,8 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                     text: message.text,
                     start: message.start,
                     end: message.end,
-                    timestamp: message.timestamp
+                    // timestamp: message.timestamp,
+                    startClock: message.startClock
                 });
             }
         });

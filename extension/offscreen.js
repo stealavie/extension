@@ -40,6 +40,8 @@ async function startCapture(streamId) {
     console.log('[Offscreen] Starting capture...');
     console.log('[Offscreen] WebSocket URL:', currentConfig.wsUrl);
     console.log('[Offscreen] StreamId:', streamId);
+    console.log('[Offscreen] Origin Lang:', currentConfig.originLang);
+    console.log('[Offscreen] Target Lang:', currentConfig.targetLang);
 
     // WebSocket Setup - Use URL from config
     socket = new WebSocket(currentConfig.wsUrl);
@@ -50,10 +52,8 @@ async function startCapture(streamId) {
         // Send configuration to server
         socket.send(JSON.stringify({
             type: 'config',
-            transcriptionModel: currentConfig.asrModel,
-            translationModel: currentConfig.translationModel,
-            sourceLang: 'auto',
-            targetLang: currentConfig.targetLang
+            asrModel: currentConfig.asrModel,
+            translationModel: currentConfig.translationModel
         }));
     };
     
@@ -99,7 +99,32 @@ async function startCapture(streamId) {
     workletNode.port.onmessage = (e) => {
         // e.data contains the Int16Array from the processor
         if (socket.readyState === WebSocket.OPEN) {
-            socket.send(e.data);
+            // Create a buffer with 2 bytes for languages + 8 bytes for timestamp + audio data
+            const timestamp = Date.now();
+            const audioData = new Uint8Array(e.data.buffer);
+            
+            // Total buffer: 1 (origin) + 1 (target) + 8 (timestamp) + audioData.length
+            const combinedBuffer = new ArrayBuffer(10 + audioData.length);
+            const view = new DataView(combinedBuffer);
+            
+            // Convert language codes: 'vie' = 1, 'en' = 0
+            const originLangCode = currentConfig.originLang === 'vie' ? 1 : 0;
+            const targetLangCode = currentConfig.targetLang === 'vie' ? 1 : 0;
+            
+            // Write origin language (first byte)
+            view.setUint8(0, originLangCode);
+            
+            // Write target language (second byte)
+            view.setUint8(1, targetLangCode);
+            
+            // Write timestamp as 64-bit integer (bytes 2-9)
+            view.setBigUint64(2, BigInt(timestamp), true); // true = little-endian
+            
+            // Copy audio data after languages and timestamp (starting at byte 10)
+            const combinedArray = new Uint8Array(combinedBuffer);
+            combinedArray.set(audioData, 10);
+            
+            socket.send(combinedBuffer);
         }
     };
 
@@ -114,7 +139,8 @@ async function startCapture(streamId) {
                     text: data.text,
                     start: data.start,
                     end: data.end,
-                    timestamp: data.timestamp
+                    // timestamp: data.timestamp,
+                    startClock: data.startClock
                 });
                 // Send to Background, which forwards to Content Script
                 chrome.runtime.sendMessage({
@@ -122,7 +148,8 @@ async function startCapture(streamId) {
                     text: data.text,
                     start: data.start,
                     end: data.end,
-                    timestamp: data.timestamp
+                    // timestamp: data.timestamp,
+                    startClock: data.startClock
                 });
             }
         } catch (e) {

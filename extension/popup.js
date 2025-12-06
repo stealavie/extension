@@ -1,9 +1,10 @@
 // Default configuration
 const DEFAULT_CONFIG = {
     wsUrl: '',
-    asrModel: 'wav2vec',
-    translationModel: 'mbart',
-    targetLang: 'vie'
+    asrModel: 'whisper-base',
+    translationModel: 'google-translate',
+    originLang: 'vie',
+    targetLang: 'en'
 };
 
 // DOM Elements
@@ -19,7 +20,8 @@ const statusIndicator = document.getElementById('status-indicator');
 const statusText = document.getElementById('status-text');
 const asrModelSelect = document.getElementById('asr-model');
 const translationModelSelect = document.getElementById('translation-model');
-const langButtons = document.querySelectorAll('.lang-btn');
+const originLangButtons = document.querySelectorAll('.origin-lang-btn');
+const targetLangButtons = document.querySelectorAll('.target-lang-btn');
 const serverUrlDisplay = document.getElementById('server-url');
 
 let isRecording = false;
@@ -50,8 +52,13 @@ async function loadConfig() {
     asrModelSelect.value = currentConfig.asrModel;
     translationModelSelect.value = currentConfig.translationModel;
     
-    // Set active language button
-    langButtons.forEach(btn => {
+    // Set active origin language button
+    originLangButtons.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.lang === currentConfig.originLang);
+    });
+    
+    // Set active target language button
+    targetLangButtons.forEach(btn => {
         btn.classList.toggle('active', btn.dataset.lang === currentConfig.targetLang);
     });
     
@@ -88,10 +95,20 @@ function setupEventListeners() {
         saveConfig();
     });
     
-    // Language buttons
-    langButtons.forEach(btn => {
+    // Origin Language buttons
+    originLangButtons.forEach(btn => {
         btn.addEventListener('click', () => {
-            langButtons.forEach(b => b.classList.remove('active'));
+            originLangButtons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentConfig.originLang = btn.dataset.lang;
+            saveConfig();
+        });
+    });
+    
+    // Target Language buttons
+    targetLangButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            targetLangButtons.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             currentConfig.targetLang = btn.dataset.lang;
             saveConfig();
@@ -173,7 +190,6 @@ async function saveAndContinue() {
         return;
     }
 
-    
     currentConfig.wsUrl = url;
     await saveConfig();
     updateServerDisplay();
@@ -236,10 +252,9 @@ function updateRecordingState() {
         statusIndicator.classList.add('active');
         statusText.textContent = 'Recording...';
         
-        // Disable model/language changes during recording
+        // Disable model changes during recording
         asrModelSelect.disabled = true;
         translationModelSelect.disabled = true;
-        langButtons.forEach(btn => btn.disabled = true);
     } else {
         recordBtn.classList.remove('recording');
         recordBtn.querySelector('.record-text').textContent = 'Start Recording';
@@ -249,7 +264,6 @@ function updateRecordingState() {
         // Enable controls
         asrModelSelect.disabled = false;
         translationModelSelect.disabled = false;
-        langButtons.forEach(btn => btn.disabled = false);
     }
 }
 
@@ -258,5 +272,43 @@ chrome.storage.onChanged.addListener((changes) => {
     if (changes.isRecording) {
         isRecording = changes.isRecording.newValue;
         updateRecordingState();
+    }
+});
+
+// Export latency data to CSV
+async function exportLatencyData() {
+    const result = await chrome.storage.local.get(['latencyData']);
+    const latencyData = result.latencyData || [];
+    
+    if (latencyData.length === 0) {
+        alert('No latency data available to export');
+        return;
+    }
+    
+    // Create CSV content with header
+    let csvContent = 'Latency,Duration\n';
+    latencyData.forEach(entry => {
+        csvContent += `${entry.latency},${entry.duration}\n`;
+    });
+    
+    // Create and download the file
+    const blob = new Blob([csvContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'analytics.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    console.log(`Exported ${latencyData.length} latency entries`);
+}
+
+// Add keyboard shortcut (Ctrl+E) to export data
+document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === 'e') {
+        e.preventDefault();
+        exportLatencyData();
     }
 });
