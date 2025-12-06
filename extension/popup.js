@@ -1,10 +1,10 @@
 // Default configuration
 const DEFAULT_CONFIG = {
     wsUrl: '',
-    asrModel: 'wav2vec',
-    translationModel: 'mbart',
-    sourceLang: 0,
-    targetLang: 1
+    asrModel: 'whisper-base',
+    translationModel: 'google-translate',
+    originLang: 'vie',
+    targetLang: 'en'
 };
 
 // DOM Elements
@@ -20,9 +20,9 @@ const statusIndicator = document.getElementById('status-indicator');
 const statusText = document.getElementById('status-text');
 const asrModelSelect = document.getElementById('asr-model');
 const translationModelSelect = document.getElementById('translation-model');
-const sourceLangButtons = document.querySelectorAll('.source-lang-btn');
+const originLangButtons = document.querySelectorAll('.origin-lang-btn');
 const targetLangButtons = document.querySelectorAll('.target-lang-btn');
-const serverUrlInput = document.getElementById('server-url-input');
+const serverUrlDisplay = document.getElementById('server-url');
 
 let isRecording = false;
 let currentConfig = { ...DEFAULT_CONFIG };
@@ -49,19 +49,21 @@ async function loadConfig() {
     
     // Populate UI with saved values
     wsUrlInput.value = currentConfig.wsUrl || '';
-    serverUrlInput.value = currentConfig.wsUrl || '';
     asrModelSelect.value = currentConfig.asrModel;
     translationModelSelect.value = currentConfig.translationModel;
     
-    // Set active source language button
-    sourceLangButtons.forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.lang === String(currentConfig.sourceLang));
+    // Set active origin language button
+    originLangButtons.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.lang === currentConfig.originLang);
     });
     
     // Set active target language button
     targetLangButtons.forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.lang === String(currentConfig.targetLang));
+        btn.classList.toggle('active', btn.dataset.lang === currentConfig.targetLang);
     });
+    
+    // Update server URL display
+    updateServerDisplay();
 }
 
 // Save configuration
@@ -82,12 +84,6 @@ function setupEventListeners() {
     backToSettingsBtn.addEventListener('click', showSettingsPage);
     recordBtn.addEventListener('click', toggleRecording);
     
-    // Server URL input field
-    serverUrlInput.addEventListener('input', (e) => {
-        currentConfig.wsUrl = e.target.value.trim();
-        saveConfig();
-    });
-    
     // Model selects
     asrModelSelect.addEventListener('change', (e) => {
         currentConfig.asrModel = e.target.value;
@@ -99,21 +95,22 @@ function setupEventListeners() {
         saveConfig();
     });
     
-    // Language buttons - convert string to number
-    sourceLangButtons.forEach(btn => {
+    // Origin Language buttons
+    originLangButtons.forEach(btn => {
         btn.addEventListener('click', () => {
-            sourceLangButtons.forEach(b => b.classList.remove('active'));
+            originLangButtons.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            currentConfig.sourceLang = parseInt(btn.dataset.lang);
+            currentConfig.originLang = btn.dataset.lang;
             saveConfig();
         });
     });
     
+    // Target Language buttons
     targetLangButtons.forEach(btn => {
         btn.addEventListener('click', () => {
             targetLangButtons.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            currentConfig.targetLang = parseInt(btn.dataset.lang);
+            currentConfig.targetLang = btn.dataset.lang;
             saveConfig();
         });
     });
@@ -193,10 +190,9 @@ async function saveAndContinue() {
         return;
     }
 
-    
     currentConfig.wsUrl = url;
     await saveConfig();
-    serverUrlInput.value = url;
+    updateServerDisplay();
     showMainPage();
 }
 
@@ -210,6 +206,21 @@ function showStatus(type, message) {
         setTimeout(() => {
             connectionStatus.classList.add('hidden');
         }, 3000);
+    }
+}
+
+// Update server URL display
+function updateServerDisplay() {
+    if (currentConfig.wsUrl) {
+        try {
+            const url = new URL(currentConfig.wsUrl);
+            serverUrlDisplay.textContent = url.hostname;
+            serverUrlDisplay.title = currentConfig.wsUrl;
+        } catch {
+            serverUrlDisplay.textContent = currentConfig.wsUrl;
+        }
+    } else {
+        serverUrlDisplay.textContent = 'Not configured';
     }
 }
 
@@ -244,7 +255,7 @@ function updateRecordingState() {
         // Disable model/language changes during recording
         asrModelSelect.disabled = true;
         translationModelSelect.disabled = true;
-        sourceLangButtons.forEach(btn => btn.disabled = true);
+        originLangButtons.forEach(btn => btn.disabled = true);
         targetLangButtons.forEach(btn => btn.disabled = true);
     } else {
         recordBtn.classList.remove('recording');
@@ -255,7 +266,7 @@ function updateRecordingState() {
         // Enable controls
         asrModelSelect.disabled = false;
         translationModelSelect.disabled = false;
-        sourceLangButtons.forEach(btn => btn.disabled = false);
+        originLangButtons.forEach(btn => btn.disabled = false);
         targetLangButtons.forEach(btn => btn.disabled = false);
     }
 }
@@ -265,5 +276,43 @@ chrome.storage.onChanged.addListener((changes) => {
     if (changes.isRecording) {
         isRecording = changes.isRecording.newValue;
         updateRecordingState();
+    }
+});
+
+// Export latency data to CSV
+async function exportLatencyData() {
+    const result = await chrome.storage.local.get(['latencyData']);
+    const latencyData = result.latencyData || [];
+    
+    if (latencyData.length === 0) {
+        alert('No latency data available to export');
+        return;
+    }
+    
+    // Create CSV content with header
+    let csvContent = 'Latency,Duration\n';
+    latencyData.forEach(entry => {
+        csvContent += `${entry.latency},${entry.duration}\n`;
+    });
+    
+    // Create and download the file
+    const blob = new Blob([csvContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'analytics.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    console.log(`Exported ${latencyData.length} latency entries`);
+}
+
+// Add keyboard shortcut (Ctrl+E) to export data
+document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === 'e') {
+        e.preventDefault();
+        exportLatencyData();
     }
 });

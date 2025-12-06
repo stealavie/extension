@@ -21,20 +21,8 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                     text: message.text,
                     start: message.start,
                     end: message.end,
-                    timestamp: message.timestamp
-                });
-            }
-        });
-    }
-    // Forward MAX_CAPTURED_TIME_UPDATE from Offscreen -> Active Tab
-    else if (message.type === 'MAX_CAPTURED_TIME_UPDATE') {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (tabs[0]) {
-                chrome.tabs.sendMessage(tabs[0].id, {
-                    type: 'MAX_CAPTURED_TIME',
-                    timestamp: message.timestamp
-                }).catch(() => {
-                    // Ignore if content script is not ready
+                    // timestamp: message.timestamp,
+                    startClock: message.startClock
                 });
             }
         });
