@@ -1,40 +1,45 @@
 let subtitleOverlay = null;
-let subtitleCache = []; // Store all subtitles: { text, start, end }
-let currentSubtitle = null; // Track currently displayed subtitle
 let positionInterval = null; // Timer to update position
-let subtitleOverlayTop = null; // Top subtitle overlay
-let subtitleOverlayBottom = null; // Bottom subtitle overlay
-let messageCount = 0; // Track message index (odd/even)
+
+// ============ DUAL-CACHE ARCHITECTURE ============
+// Storage A: Playback Cache (for seeking/rewinding)
+const playbackCache = new Map(); // Key: timestamp, Value: { text, start, end, startClock }
+
+// Storage B: Render Queue (FIFO for live streaming effect)
+const renderQueue = []; // Array of { text, messageIndex }
+
+// Rendering state
+let isRendering = false;
+let currentRenderingText = '';
+let currentWordIndex = 0;
+let renderingTimer = null;
+let messageCount = 0;
 
 // 1. Create the Subtitle UI that works on any platform
-function getOrCreateOverlay(position = 'bottom') {
-    // Check if we already have overlays
-    const overlayId = position === 'top' ? 'live-subtitle-overlay-top' : 'live-subtitle-overlay-bottom';
-    let overlay = position === 'top' ? subtitleOverlayTop : subtitleOverlayBottom;
-    
-    if (overlay && document.body.contains(overlay)) {
-        return overlay;
+function getOrCreateOverlay() {
+    if (subtitleOverlay && document.body.contains(subtitleOverlay)) {
+        return subtitleOverlay;
     }
 
     // Create the container
     const div = document.createElement('div');
-    div.id = overlayId;
+    div.id = 'live-subtitle-overlay';
 
-    console.log(`[Content] Creating subtitle overlay at ${position}`);
+    console.log('[Content] Creating subtitle overlay');
 
     // Use FIXED positioning attached to BODY
     Object.assign(div.style, {
         position: 'fixed',
         textAlign: 'center',
         color: 'white',
-        fontSize: '24px',
+        fontSize: '14px',
         fontFamily: 'Arial, sans-serif',
         fontWeight: 'bold',
         textShadow: '0px 0px 4px black, 1px 1px 4px black, -1px -1px 4px black',
         backgroundColor: 'rgba(0, 0, 0, 0.6)',
         padding: '8px 16px',
         borderRadius: '6px',
-        zIndex: position === 'top' ? '2147483647' : '2147483646',
+        zIndex: '2147483647',
         pointerEvents: 'none',
         transition: 'opacity 0.2s ease-in-out',
         opacity: '0',
@@ -45,14 +50,112 @@ function getOrCreateOverlay(position = 'bottom') {
     });
 
     document.body.appendChild(div);
-    
-    if (position === 'top') {
-        subtitleOverlayTop = div;
-    } else {
-        subtitleOverlayBottom = div;
-    }
+    subtitleOverlay = div;
     
     return div;
+}
+
+// ============ FIFO RENDERING LOOP ============
+/**
+ * Processes the render queue and displays subtitles word-by-word
+ * with a 0.5-second interval between words
+ */
+async function processRenderQueue() {
+    // Prevent multiple rendering loops from running simultaneously
+    if (isRendering) return;
+    
+    // Check if queue is empty
+    if (renderQueue.length === 0) {
+        isRendering = false;
+        return;
+    }
+    
+    isRendering = true;
+    
+    // Pop the first item from the queue
+    const queueItem = renderQueue.shift();
+    const { text } = queueItem;
+    
+    console.log(`[FIFO Renderer] Processing: "${text}"`);
+    
+    // Split text into words
+    const words = text.trim().split(/\s+/);
+    
+    // Get the overlay
+    const overlay = getOrCreateOverlay();
+    
+    // Clear the overlay content
+    overlay.innerText = '';
+    overlay.style.opacity = '1';
+    
+    // Render words incrementally
+    for (let i = 0; i < words.length; i++) {
+        currentWordIndex = i;
+        
+        // Append the current word
+        if (i === 0) {
+            overlay.innerText = words[i];
+        } else {
+            overlay.innerText += ' ' + words[i];
+        }
+        
+        // Wait 0.2 seconds before next word (except for the last word)
+        if (i < words.length - 1) {
+            await new Promise(resolve => {
+                renderingTimer = setTimeout(resolve, 200);
+            });
+        }
+    }
+    
+    // Wait a bit before clearing and processing next item
+    await new Promise(resolve => {
+        renderingTimer = setTimeout(resolve, 500);
+    });
+    
+    // Clear the overlay after completion
+    overlay.style.opacity = '0';
+    overlay.innerText = '';
+    
+    isRendering = false;
+    
+    // Process next item in queue
+    processRenderQueue();
+}
+
+/**
+ * Add subtitle to render queue and trigger processing
+ */
+function addToRenderQueue(text, messageIndex) {
+    renderQueue.push({ text, messageIndex });
+    
+    console.log(`[FIFO Queue] Added: "${text}" | Queue size: ${renderQueue.length}`);
+    
+    // Trigger processing if not already running
+    if (!isRendering) {
+        processRenderQueue();
+    }
+}
+
+/**
+ * Stop current rendering (for seeking/interruptions)
+ */
+function stopRendering() {
+    if (renderingTimer) {
+        clearTimeout(renderingTimer);
+        renderingTimer = null;
+    }
+    
+    isRendering = false;
+    currentWordIndex = 0;
+    currentRenderingText = '';
+    
+    // Clear queue
+    renderQueue.length = 0;
+    
+    // Hide overlay
+    if (subtitleOverlay) subtitleOverlay.style.opacity = '0';
+    
+    console.log('[FIFO Renderer] Stopped and cleared');
 }
 
 // 2. Update Overlay Position to match Video
@@ -61,34 +164,19 @@ function updateOverlayPosition(video) {
 
     const rect = video.getBoundingClientRect();
 
-    // If video is not visible or off-screen, hide overlays
+    // If video is not visible or off-screen, hide overlay
     if (rect.width === 0 || rect.height === 0) {
-        if (subtitleOverlayTop) subtitleOverlayTop.style.opacity = '0';
-        if (subtitleOverlayBottom) subtitleOverlayBottom.style.opacity = '0';
+        if (subtitleOverlay) subtitleOverlay.style.opacity = '0';
         return;
     }
 
     // Calculate center position
     const centerX = rect.left + (rect.width / 2);
-
-    // Calculate positions for top and bottom subtitles
     const bottomY = rect.bottom - (rect.height * 0.15); // Bottom subtitle position
-    const topY = rect.bottom - (rect.height * 0.25); // Top subtitle position (above bottom)
 
-    // Update top overlay position
-    if (subtitleOverlayTop) {
-        Object.assign(subtitleOverlayTop.style, {
-            width: 'auto',
-            maxWidth: `${rect.width * 0.9}px`,
-            left: `${centerX}px`,
-            top: `${topY}px`,
-            transform: 'translate(-50%, -100%)'
-        });
-    }
-
-    // Update bottom overlay position
-    if (subtitleOverlayBottom) {
-        Object.assign(subtitleOverlayBottom.style, {
+    // Update overlay position
+    if (subtitleOverlay) {
+        Object.assign(subtitleOverlay.style, {
             width: 'auto',
             maxWidth: `${rect.width * 0.9}px`,
             left: `${centerX}px`,
@@ -98,54 +186,38 @@ function updateOverlayPosition(video) {
     }
 }
 
-// 3. Function to Update Text based on current video time
+// 3. Function to Update Text based on current video time (PLAYBACK MODE - uses Storage A)
 function updateOverlayState(video) {
     if (!video) return;
 
     const currentTime = video.currentTime;
-    const topOverlay = getOrCreateOverlay('top');
-    const bottomOverlay = getOrCreateOverlay('bottom');
+    const overlay = getOrCreateOverlay();
 
     // Sync position
     updateOverlayPosition(video);
 
-    // Find active subtitles for top (odd messages) and bottom (even messages)
-    let topSubtitle = null;
-    let bottomSubtitle = null;
+    // Find active subtitle from playback cache (Storage A)
+    let activeSubtitle = null;
 
-    // Find the most recent odd and even messages that should be visible
-    for (let i = subtitleCache.length - 1; i >= 0; i--) {
-        const sub = subtitleCache[i];
-        if (currentTime >= sub.start && currentTime <= sub.end) {
-            if (sub.isOdd && !topSubtitle) {
-                topSubtitle = sub;
-            } else if (!sub.isOdd && !bottomSubtitle) {
-                bottomSubtitle = sub;
+    // Search through playback cache for matching timestamp (most recent one)
+    for (const [timestamp, subtitle] of playbackCache) {
+        if (currentTime >= subtitle.start && currentTime <= subtitle.end) {
+            if (!activeSubtitle || subtitle.messageIndex > activeSubtitle.messageIndex) {
+                activeSubtitle = subtitle;
             }
-            
-            // Stop if we found both
-            if (topSubtitle && bottomSubtitle) break;
         }
     }
 
-    // Update top overlay
-    if (topSubtitle) {
-        topOverlay.innerText = topSubtitle.text;
-        topOverlay.style.opacity = '1';
+    // Update overlay (show full text immediately during playback/seeking)
+    if (activeSubtitle) {
+        overlay.innerText = activeSubtitle.text;
+        overlay.style.opacity = '1';
     } else {
-        topOverlay.style.opacity = '0';
-    }
-
-    // Update bottom overlay
-    if (bottomSubtitle) {
-        bottomOverlay.innerText = bottomSubtitle.text;
-        bottomOverlay.style.opacity = '1';
-    } else {
-        bottomOverlay.style.opacity = '0';
+        overlay.style.opacity = '0';
     }
 }
 
-// 4. Listen for Messages
+// 4. Listen for Messages and Populate Both Caches
 chrome.runtime.onMessage.addListener((message) => {
     if (message.type === 'TRANSCRIPTION_RESULT') {
         const receiveTime = Date.now();
@@ -154,25 +226,36 @@ chrome.runtime.onMessage.addListener((message) => {
         console.log('[Content] ⏱️ Latency:', latency, 'ms');
 
         messageCount++;
-        const isOdd = messageCount % 2 === 1;
 
-        // Extend end time by 2000ms (2 seconds)
+        // ============ STORAGE A: PLAYBACK CACHE ============
+        // Store full subtitle data with extended end time for seeking/playback
         const extendedEnd = message.end + 4;
-
-        subtitleCache.push({
+        const subtitleData = {
             text: message.text,
             start: message.start,
             end: extendedEnd,
-            isOdd: isOdd,
-            messageIndex: messageCount
-        });
-
-        subtitleCache.sort((a, b) => a.start - b.start);
-        if (subtitleCache.length > 200) subtitleCache.shift();
-
-        const video = document.querySelector('video');
-        if (video) updateOverlayState(video);
+            messageIndex: messageCount,
+            startClock: message.startClock
+        };
         
+        // Use start timestamp as key (or could use a combination of start+messageIndex)
+        const cacheKey = `${message.start}_${messageCount}`;
+        playbackCache.set(cacheKey, subtitleData);
+        
+        // Limit cache size to prevent memory issues
+        if (playbackCache.size > 500) {
+            // Remove oldest entry
+            const firstKey = playbackCache.keys().next().value;
+            playbackCache.delete(firstKey);
+        }
+        
+        console.log(`[Storage A] Cached: "${message.text}" | Cache size: ${playbackCache.size}`);
+
+        // ============ STORAGE B: RENDER QUEUE (FIFO) ============
+        // Add only the text to the render queue for live streaming effect
+        addToRenderQueue(message.text, messageCount);
+        
+        // Calculate duration for analytics
         const duration = (message.end - message.start) * 1000;
 
         // Save latency data to Chrome storage
@@ -207,15 +290,22 @@ function safeSendMessage(message) {
 function attachVideoListeners() {
     const video = document.querySelector('video');
     if (video) {
-        console.log('[Content] 🎥 Video element found (Fixed Overlay Mode v2)');
+        console.log('[Content] 🎥 Video element found (FIFO Streaming Mode)');
 
         // Clean up old interval if exists
         if (positionInterval) clearInterval(positionInterval);
 
-        // 1. Seek
+        // 1. Seek - Stop FIFO rendering and switch to playback mode
         video.addEventListener('seeked', () => {
-            currentSubtitle = null;
+            console.log('[Content] 🔍 Seek detected - stopping FIFO renderer');
+            
+            // Stop the word-by-word rendering
+            stopRendering();
+            
+            // Use playback cache (Storage A) for immediate display
             updateOverlayState(video);
+            
+            // Sync with backend
             chrome.runtime.sendMessage({ type: 'TIME_SYNC', timestamp: video.currentTime });
         });
 
@@ -224,9 +314,10 @@ function attachVideoListeners() {
             safeSendMessage({ type: 'PLAYBACK_RATE', rate: video.playbackRate });
         });
 
-        // 3. Time Update (Sync + Position)
+        // 3. Time Update - Only update position, don't interfere with FIFO rendering
         video.addEventListener('timeupdate', () => {
-            updateOverlayState(video);
+            // Only update overlay positions, not content
+            updateOverlayPosition(video);
         });
 
         // 4. Scroll/Resize (Update Position)
@@ -244,6 +335,21 @@ function attachVideoListeners() {
                 safeSendMessage({ type: 'TIME_SYNC', timestamp: video.currentTime });
             }
         }, 2000);
+        
+        // 7. Pause - Stop FIFO rendering
+        video.addEventListener('pause', () => {
+            console.log('[Content] ⏸️ Pause detected - stopping FIFO renderer');
+            stopRendering();
+        });
+        
+        // 8. Play - Resume processing queue if items exist
+        video.addEventListener('play', () => {
+            console.log('[Content] ▶️ Play detected');
+            if (renderQueue.length > 0 && !isRendering) {
+                console.log('[Content] Resuming FIFO rendering');
+                processRenderQueue();
+            }
+        });
     }
 }
 
