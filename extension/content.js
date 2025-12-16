@@ -246,8 +246,17 @@ function updateOverlayState(video) {
 }
 
 // 4. Listen for Messages and Populate Both Caches
-chrome.runtime.onMessage.addListener((message) => {
-    if (message.type === 'TRANSCRIPTION_RESULT') {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // Handle GET_VIDEO_ID request
+    if (message.type === 'GET_VIDEO_ID') {
+        const videoId = getYouTubeVideoId();
+        console.log('[Content] 📺 Requested video ID:', videoId);
+        sendResponse({ videoId: videoId });
+        return true; // Keep channel open for async response
+    }
+    
+    // Handle transcription results
+    else if (message.type === 'TRANSCRIPTION_RESULT') {
         const receiveTime = Date.now();
         const latency = Math.abs(receiveTime - message.startClock);
         console.log('[Content] 📺 Transcription received:', message.text);
@@ -256,7 +265,6 @@ chrome.runtime.onMessage.addListener((message) => {
         messageCount++;
 
         // ============ STORAGE A: PLAYBACK CACHE ============
-
         // Store full subtitle data with extended end time for seeking/playback
         const extendedEnd = message.end + 4;
         const subtitleData = {
@@ -351,16 +359,6 @@ function safeSendMessage(message) {
         console.log('[Content] Extension reloaded, message not sent:', message.type);
     }
 }
-
-// Listen for requests to get current video ID
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === 'GET_VIDEO_ID') {
-        const videoId = getYouTubeVideoId();
-        console.log('[Content] 📺 Requested video ID:', videoId);
-        sendResponse({ videoId: videoId });
-        return true; // Keep channel open for async response
-    }
-});
 
 // 5. Monitor Video Events
 function attachVideoListeners() {
