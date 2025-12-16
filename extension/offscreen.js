@@ -3,6 +3,7 @@ let audioContext = null;
 let processor = null;
 let stream = null;
 let currentConfig = null;
+let currentVideoId = null; // Track current video ID
 
 console.log('[Offscreen] Script loaded');
 
@@ -15,6 +16,19 @@ chrome.runtime.onMessage.addListener((message) => {
         startCapture(message.streamId);
     } else if (message.type === 'STOP_RECORDING') {
         stopCapture();
+    }
+    // Handle video change
+    else if (message.type === 'VIDEO_CHANGED') {
+        currentVideoId = message.videoId;
+        console.log('[Offscreen] 📺 Video ID changed to:', currentVideoId);
+        
+        // Notify server about video change
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+                type: 'video_changed',
+                videoId: currentVideoId
+            }));
+        }
     }
     // Forward sync messages to WebSocket
     else if (message.type === 'TIME_SYNC' && socket && socket.readyState === WebSocket.OPEN) {
@@ -99,30 +113,48 @@ async function startCapture(streamId) {
     workletNode.port.onmessage = (e) => {
         // e.data contains the Int16Array from the processor
         if (socket.readyState === WebSocket.OPEN) {
-            // Create a buffer with 2 bytes for languages + 8 bytes for timestamp + audio data
             const timestamp = Date.now();
             const audioData = new Uint8Array(e.data.buffer);
-            
-            // Total buffer: 1 (origin) + 1 (target) + 8 (timestamp) + audioData.length
-            const combinedBuffer = new ArrayBuffer(10 + audioData.length);
-            const view = new DataView(combinedBuffer);
             
             // Convert language codes: 'vie' = 1, 'en' = 0
             const originLangCode = currentConfig.originLang === 'vie' ? 1 : 0;
             const targetLangCode = currentConfig.targetLang === 'vie' ? 1 : 0;
             
+            // Encode video ID as UTF-8 bytes (or empty if not available)
+            const videoIdString = currentVideoId || '';
+            const encoder = new TextEncoder();
+            const videoIdBytes = encoder.encode(videoIdString);
+            const videoIdLength = videoIdBytes.length;
+            
+            // Total buffer: 1 (origin) + 1 (target) + 8 (timestamp) + 2 (videoIdLength) + videoIdLength + audioData.length
+            const combinedBuffer = new ArrayBuffer(12 + videoIdLength + audioData.length);
+            const view = new DataView(combinedBuffer);
+            
+            let offset = 0;
+            
             // Write origin language (first byte)
-            view.setUint8(0, originLangCode);
+            view.setUint8(offset, originLangCode);
+            offset += 1;
             
             // Write target language (second byte)
-            view.setUint8(1, targetLangCode);
+            view.setUint8(offset, targetLangCode);
+            offset += 1;
             
             // Write timestamp as 64-bit integer (bytes 2-9)
-            view.setBigUint64(2, BigInt(timestamp), true); // true = little-endian
+            view.setBigUint64(offset, BigInt(timestamp), true); // true = little-endian
+            offset += 8;
             
-            // Copy audio data after languages and timestamp (starting at byte 10)
+            // Write video ID length as 16-bit integer (bytes 10-11)
+            view.setUint16(offset, videoIdLength, true); // little-endian
+            offset += 2;
+            
+            // Copy video ID bytes (bytes 12 to 12+videoIdLength)
             const combinedArray = new Uint8Array(combinedBuffer);
-            combinedArray.set(audioData, 10);
+            combinedArray.set(videoIdBytes, offset);
+            offset += videoIdLength;
+            
+            // Copy audio data after video ID
+            combinedArray.set(audioData, offset);
             
             socket.send(combinedBuffer);
         }
@@ -139,7 +171,6 @@ async function startCapture(streamId) {
                     text: data.text,
                     start: data.start,
                     end: data.end,
-                    // timestamp: data.timestamp,
                     startClock: data.startClock
                 });
                 // Send to Background, which forwards to Content Script
@@ -148,8 +179,19 @@ async function startCapture(streamId) {
                     text: data.text,
                     start: data.start,
                     end: data.end,
-                    // timestamp: data.timestamp,
                     startClock: data.startClock
+                });
+            }
+            else if (data.type === 'ALREADY_TRANSCRIBED') {
+                console.log('[Offscreen] 💾 Cached subtitles received:', {
+                    video_id: data.video_id,
+                    count: data.subtitle_count
+                });
+                // Send all cached subtitles to content script
+                chrome.runtime.sendMessage({
+                    type: 'ALREADY_TRANSCRIBED',
+                    video_id: data.video_id,
+                    subtitles: data.subtitles
                 });
             }
         } catch (e) {

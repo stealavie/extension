@@ -1,5 +1,6 @@
 let subtitleOverlay = null;
 let positionInterval = null; // Timer to update position
+let currentVideoId = null; // Track current video ID
 
 // ============ DUAL-CACHE ARCHITECTURE ============
 // Storage A: Playback Cache (for seeking/rewinding)
@@ -14,6 +15,45 @@ let currentRenderingText = '';
 let currentWordIndex = 0;
 let renderingTimer = null;
 let messageCount = 0;
+
+// Function to extract YouTube video ID from URL
+function getYouTubeVideoId() {
+    try {
+        const url = new URL(window.location.href);
+        const videoId = url.searchParams.get('v');
+        return videoId || null;
+    } catch (e) {
+        console.error('[Content] Error extracting video ID:', e);
+        return null;
+    }
+}
+
+// Function to detect video changes
+function checkVideoChange() {
+    const newVideoId = getYouTubeVideoId();
+    
+    if (newVideoId && newVideoId !== currentVideoId) {
+        console.log('[Content] 🎬 Video changed:', currentVideoId, '->', newVideoId);
+        
+        // Clear caches when video changes
+        playbackCache.clear();
+        renderQueue.length = 0;
+        stopRendering();
+        
+        // Update current video ID
+        currentVideoId = newVideoId;
+        
+        // Notify background/offscreen about video change
+        safeSendMessage({ 
+            type: 'VIDEO_CHANGED', 
+            videoId: newVideoId 
+        });
+        
+        console.log('[Content] 📺 Now watching video ID:', newVideoId);
+    }
+    
+    return newVideoId;
+}
 
 // 1. Create the Subtitle UI that works on any platform
 function getOrCreateOverlay() {
@@ -56,6 +96,7 @@ function getOrCreateOverlay() {
 }
 
 // ============ FIFO RENDERING LOOP ============
+
 /**
  * Processes the render queue and displays subtitles word-by-word
  * with a 0.5-second interval between words
@@ -228,6 +269,7 @@ chrome.runtime.onMessage.addListener((message) => {
         messageCount++;
 
         // ============ STORAGE A: PLAYBACK CACHE ============
+
         // Store full subtitle data with extended end time for seeking/playback
         const extendedEnd = message.end + 4;
         const subtitleData = {
@@ -252,6 +294,7 @@ chrome.runtime.onMessage.addListener((message) => {
         console.log(`[Storage A] Cached: "${message.text}" | Cache size: ${playbackCache.size}`);
 
         // ============ STORAGE B: RENDER QUEUE (FIFO) ============
+
         // Add only the text to the render queue for live streaming effect
         addToRenderQueue(message.text, messageCount);
         
@@ -275,6 +318,43 @@ chrome.runtime.onMessage.addListener((message) => {
             
             chrome.storage.local.set({ latencyData });
         });
+    }
+    // Handle cached subtitles from server
+    else if (message.type === 'ALREADY_TRANSCRIBED') {
+        console.log('[Content] 💾 Received cached subtitles:', message.subtitles.length);
+        
+        // Clear existing caches for fresh start
+        playbackCache.clear();
+        renderQueue.length = 0;
+        stopRendering();
+        
+        // Process all cached subtitles
+        message.subtitles.forEach((subtitle, index) => {
+            messageCount++;
+            
+            // Add to playback cache
+            const extendedEnd = subtitle.end + 4;
+            const subtitleData = {
+                text: subtitle.translate_text,
+                start: subtitle.start,
+                end: extendedEnd,
+                messageIndex: messageCount,
+                startClock: Date.now() // Use current time as reference
+            };
+            
+            const cacheKey = `${subtitle.start}_${messageCount}`;
+            playbackCache.set(cacheKey, subtitleData);
+            
+            console.log(`[Content] 💾 Cached subtitle ${index + 1}/${message.subtitles.length}: "${subtitle.translate_text}" [${subtitle.start}s - ${subtitle.end}s]`);
+        });
+        
+        console.log(`[Content] ✅ Loaded ${message.subtitles.length} cached subtitles into playback cache`);
+        
+        // Get current video element and update overlay based on current time
+        const video = document.querySelector('video');
+        if (video) {
+            updateOverlayState(video);
+        }
     }
 });
 
@@ -355,11 +435,24 @@ function attachVideoListeners() {
 
 // Run on load
 attachVideoListeners();
+checkVideoChange(); // Initialize video ID
 
 // Observer for SPA
 const observer = new MutationObserver(() => {
     if (!document.querySelector('video')) return;
     attachVideoListeners();
+    checkVideoChange(); // Check for video change
     observer.disconnect();
 });
 observer.observe(document.body, { childList: true, subtree: true });
+
+// Monitor URL changes (for YouTube SPA navigation)
+let lastUrl = window.location.href;
+setInterval(() => {
+    const currentUrl = window.location.href;
+    if (currentUrl !== lastUrl) {
+        lastUrl = currentUrl;
+        console.log('[Content] URL changed, checking for video change...');
+        checkVideoChange();
+    }
+}, 1000);

@@ -27,8 +27,21 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
             }
         });
     }
-    // Forward TIME_SYNC and PLAYBACK_RATE from Content Script -> Offscreen
-    else if (message.type === 'TIME_SYNC' || message.type === 'PLAYBACK_RATE') {
+    // Forward ALREADY_TRANSCRIBED from Offscreen -> Active Tab
+    else if (message.type === 'ALREADY_TRANSCRIBED') {
+        console.log('[Background] 💾 Forwarding cached subtitles to content script');
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0]) {
+                chrome.tabs.sendMessage(tabs[0].id, {
+                    type: 'ALREADY_TRANSCRIBED',
+                    video_id: message.video_id,
+                    subtitles: message.subtitles
+                });
+            }
+        });
+    }
+    // Forward TIME_SYNC, PLAYBACK_RATE, and VIDEO_CHANGED from Content Script -> Offscreen
+    else if (message.type === 'TIME_SYNC' || message.type === 'PLAYBACK_RATE' || message.type === 'VIDEO_CHANGED') {
         // Forward to offscreen document
         try {
             chrome.runtime.sendMessage(message);
