@@ -61,6 +61,16 @@ async function startRecording(config) {
             return;
         }
 
+        // Get current video ID from content script
+        let videoId = null;
+        try {
+            const response = await chrome.tabs.sendMessage(tab.id, { type: 'GET_VIDEO_ID' });
+            videoId = response?.videoId || null;
+            console.log('[Background] 📺 Current video ID:', videoId);
+        } catch (e) {
+            console.log('[Background] Could not get video ID from content script:', e);
+        }
+
         // Check and create offscreen document if needed
         const existingContexts = await chrome.runtime.getContexts({});
         const offscreenDocument = existingContexts.find(
@@ -80,12 +90,13 @@ async function startRecording(config) {
             targetTabId: tab.id
         });
 
-        // Send START command with config and streamId
+        // Send START command with config, streamId, and videoId
         setTimeout(() => {
             chrome.runtime.sendMessage({
                 type: 'START_RECORDING',
                 streamId: streamId,
-                config: config
+                config: config,
+                videoId: videoId  // Include initial video ID
             });
         }, 300);
 

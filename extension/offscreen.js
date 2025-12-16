@@ -12,6 +12,11 @@ chrome.runtime.onMessage.addListener((message) => {
     
     if (message.type === 'START_RECORDING') {
         currentConfig = message.config;
+        // Set initial video ID if provided
+        if (message.videoId) {
+            currentVideoId = message.videoId;
+            console.log('[Offscreen] 📺 Initial video ID set:', currentVideoId);
+        }
         console.log('[Offscreen] Config received:', currentConfig);
         startCapture(message.streamId);
     } else if (message.type === 'STOP_RECORDING') {

@@ -352,6 +352,16 @@ function safeSendMessage(message) {
     }
 }
 
+// Listen for requests to get current video ID
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'GET_VIDEO_ID') {
+        const videoId = getYouTubeVideoId();
+        console.log('[Content] 📺 Requested video ID:', videoId);
+        sendResponse({ videoId: videoId });
+        return true; // Keep channel open for async response
+    }
+});
+
 // 5. Monitor Video Events
 function attachVideoListeners() {
     const video = document.querySelector('video');
