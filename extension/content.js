@@ -57,8 +57,9 @@ function getOrCreateOverlay() {
 
 // ============ FIFO RENDERING LOOP ============
 /**
- * Processes the render queue and displays subtitles word-by-word
- * with a 0.5-second interval between words
+ * Processes the render queue and displays subtitles immediately
+ * Shows full text instantly with video timestamp
+ * Keeps text visible until next text arrives
  */
 async function processRenderQueue() {
     // Prevent multiple rendering loops from running simultaneously
@@ -74,61 +75,47 @@ async function processRenderQueue() {
     
     // Pop the first item from the queue
     const queueItem = renderQueue.shift();
-    const { text } = queueItem;
+    const { text, timestamp } = queueItem;
     
-    console.log(`[FIFO Renderer] Processing: "${text}"`);
-    
-    // Split text into words
-    const words = text.trim().split(/\s+/);
+    console.log(`[FIFO Renderer] Processing: "${text}" at ${timestamp}s`);
     
     // Get the overlay
     const overlay = getOrCreateOverlay();
     
-    // Clear the overlay content
-    overlay.innerText = '';
+    // Get current video element for timestamp
+    const video = document.querySelector('video');
+    const videoTime = video ? formatTimestamp(video.currentTime) : '';
+    
+    // Display full text immediately with timestamp
+    const displayText = videoTime ? `[${videoTime}] ${text}` : text;
+    overlay.innerText = displayText;
     overlay.style.opacity = '1';
     
-    // Render words incrementally
-    for (let i = 0; i < words.length; i++) {
-        currentWordIndex = i;
-        
-        // Append the current word
-        if (i === 0) {
-            overlay.innerText = words[i];
-        } else {
-            overlay.innerText += ' ' + words[i];
-        }
-        
-        // Wait 0.2 seconds before next word (except for the last word)
-        if (i < words.length - 1) {
-            await new Promise(resolve => {
-                renderingTimer = setTimeout(resolve, 200);
-            });
-        }
-    }
-    
-    // Wait a bit before clearing and processing next item
-    await new Promise(resolve => {
-        renderingTimer = setTimeout(resolve, 500);
-    });
-    
-    // Clear the overlay after completion
-    overlay.style.opacity = '0';
-    overlay.innerText = '';
-    
+    // Don't clear - keep visible until next text arrives
     isRendering = false;
     
-    // Process next item in queue
-    processRenderQueue();
+    // Process next item in queue immediately
+    if (renderQueue.length > 0) {
+        processRenderQueue();
+    }
+}
+
+/**
+ * Format timestamp from seconds to MM:SS format
+ */
+function formatTimestamp(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
 /**
  * Add subtitle to render queue and trigger processing
  */
-function addToRenderQueue(text, messageIndex) {
-    renderQueue.push({ text, messageIndex });
+function addToRenderQueue(text, messageIndex, timestamp) {
+    renderQueue.push({ text, messageIndex, timestamp });
     
-    console.log(`[FIFO Queue] Added: "${text}" | Queue size: ${renderQueue.length}`);
+    console.log(`[FIFO Queue] Added: "${text}" at ${timestamp}s | Queue size: ${renderQueue.length}`);
     
     // Trigger processing if not already running
     if (!isRendering) {
@@ -252,8 +239,8 @@ chrome.runtime.onMessage.addListener((message) => {
         console.log(`[Storage A] Cached: "${message.text}" | Cache size: ${playbackCache.size}`);
 
         // ============ STORAGE B: RENDER QUEUE (FIFO) ============
-        // Add only the text to the render queue for live streaming effect
-        addToRenderQueue(message.text, messageCount);
+        // Add text with timestamp to the render queue for live streaming effect
+        addToRenderQueue(message.text, messageCount, message.start);
         
         // Calculate duration for analytics
         const duration = (message.end - message.start) * 1000;
