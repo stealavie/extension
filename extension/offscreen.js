@@ -3,21 +3,32 @@ let audioContext = null;
 let stream = null;
 let currentConfig = null;
 let currentVideoId = null;
+let isPaused = false; // NEW: Flag để tạm dừng gửi audio khi ở replay mode
 
 chrome.runtime.onMessage.addListener((message) => {
     if (message.type === 'START_RECORDING') {
         currentConfig = message.config;
         currentVideoId = message.videoId || null;
+        isPaused = false; // Reset pause state khi start recording
         startCapture(message.streamId);
     } else if (message.type === 'STOP_RECORDING') {
         stopCapture();
     } else if (message.type === 'VIDEO_CHANGED') {
         currentVideoId = message.videoId;
+        isPaused = false; // Reset pause state khi video thay đổi
         sendToSocket({ type: 'video_changed', videoId: currentVideoId });
     } else if (message.type === 'TIME_SYNC') {
         sendToSocket({ type: 'time_sync', timestamp: message.timestamp });
     } else if (message.type === 'PLAYBACK_RATE') {
         sendToSocket({ type: 'playback_rate', rate: message.rate });
+    } else if (message.type === 'PAUSE_CAPTURE') {
+        // NEW: Tạm dừng gửi audio data (replay mode)
+        isPaused = true;
+        console.log('[Offscreen] Audio capture PAUSED (replay mode)');
+    } else if (message.type === 'RESUME_CAPTURE') {
+        // NEW: Tiếp tục gửi audio data (live mode)
+        isPaused = false;
+        console.log('[Offscreen] Audio capture RESUMED (live mode)');
     }
 });
 
@@ -59,7 +70,7 @@ async function startCapture(streamId) {
                     subtitles: data.subtitles
                 });
             }
-        } catch {}
+        } catch { }
     };
 
     stream = await navigator.mediaDevices.getUserMedia({
@@ -87,26 +98,29 @@ async function startCapture(streamId) {
     workletNode.port.onmessage = (e) => {
         if (socket?.readyState !== WebSocket.OPEN) return;
 
+        // NEW: Skip gửi audio khi đang ở replay mode
+        if (isPaused) return;
+
         const timestamp = Date.now();
         const audioData = new Uint8Array(e.data.buffer);
         const originLangCode = currentConfig.originLang === 'vie' ? 1 : 0;
         const targetLangCode = currentConfig.targetLang === 'vie' ? 1 : 0;
-        
+
         const videoIdString = currentVideoId || '';
         const videoIdBytes = new TextEncoder().encode(videoIdString);
         const videoIdLength = videoIdBytes.length;
-        
+
         const buffer = new ArrayBuffer(12 + videoIdLength + audioData.length);
         const view = new DataView(buffer);
         const arr = new Uint8Array(buffer);
-        
+
         view.setUint8(0, originLangCode);
         view.setUint8(1, targetLangCode);
         view.setBigUint64(2, BigInt(timestamp), true);
         view.setUint16(10, videoIdLength, true);
         arr.set(videoIdBytes, 12);
         arr.set(audioData, 12 + videoIdLength);
-        
+
         socket.send(buffer);
     };
 
