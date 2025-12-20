@@ -9,8 +9,8 @@ chrome.runtime.onMessage.addListener(async (message) => {
         await stopRecording();
     } else if (message.type === 'TRANSCRIPTION_RESULT' || message.type === 'ALREADY_TRANSCRIBED') {
         forwardToActiveTab(message);
-    } else if (['TIME_SYNC', 'PLAYBACK_RATE', 'VIDEO_CHANGED'].includes(message.type)) {
-        try { chrome.runtime.sendMessage(message); } catch {}
+    } else if (['TIME_SYNC', 'PLAYBACK_RATE', 'VIDEO_CHANGED', 'PAUSE_CAPTURE', 'RESUME_CAPTURE'].includes(message.type)) {
+        try { chrome.runtime.sendMessage(message); } catch { }
     }
 });
 
@@ -29,7 +29,7 @@ async function startRecording(config) {
         try {
             const response = await chrome.tabs.sendMessage(tab.id, { type: 'GET_VIDEO_ID' });
             videoId = response?.videoId || null;
-        } catch {}
+        } catch { }
 
         const existingContexts = await chrome.runtime.getContexts({});
         if (!existingContexts.find(c => c.contextType === 'OFFSCREEN_DOCUMENT')) {
@@ -60,8 +60,8 @@ async function startRecording(config) {
 
 async function stopRecording() {
     try {
-        try { chrome.runtime.sendMessage({ type: 'STOP_RECORDING' }); } catch {}
-        try { await chrome.offscreen.closeDocument(); } catch {}
+        try { chrome.runtime.sendMessage({ type: 'STOP_RECORDING' }); } catch { }
+        try { await chrome.offscreen.closeDocument(); } catch { }
         await chrome.storage.local.set({ isRecording: false });
     } catch (error) {
         console.error('Error stopping recording:', error);
